@@ -1,0 +1,6 @@
+{
+  "device": "STM32F030C8T6",
+  "core": "Cortex-M0",
+  "order": 0,
+  "toolchain": "CLANG_GCC"
+}
