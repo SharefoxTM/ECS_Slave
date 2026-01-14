@@ -18,50 +18,64 @@ ModbusConfig_t Modbus_ReadConfig(void) {
   return config;
 }
 
-void Modbus_Init(ModbusInterface_t *mb, uint8_t slaveId, uint8_t totalSlots) {
-  mb->slaveId = slaveId;
-  mb->totalSlots = totalSlots;
+ModbusInterface_t Modbus_Init(uint8_t slaveId) {
+  ModbusInterface_t mb = {0};
+  mb.slaveId = slaveId;
 
-  // Allocate dynamic register arrays based on total slots
-  mb->coils = (uint8_t *)malloc(totalSlots);
-  mb->discreteInputs = (uint8_t *)malloc(totalSlots);
-  mb->holdingRegisters =
-      (uint16_t *)malloc((totalSlots + 1) * sizeof(uint16_t));
+  mb.shiftReg = ShiftRegister_Init();
 
-  // Clear all registers
-  memset(mb->coils, 0, totalSlots);
-  memset(mb->discreteInputs, 0, totalSlots);
-  memset(mb->inputRegisters, 0, sizeof(mb->inputRegisters));
-  memset(mb->holdingRegisters, 0, (totalSlots + 1) * sizeof(uint16_t));
+  // Allocate dynamic register arrays based on total slots and clear them
+  mb.coils = (uint8_t *)calloc(mb.shiftReg.totalSlots, sizeof(uint8_t));
+  if (mb.coils == NULL) {
+    // Handle allocation failure
+    // TODO: HANDLE ALLOCATION ERROR
+  }
+  mb.discreteInputs =
+      (uint8_t *)calloc(mb.shiftReg.totalSlots, sizeof(uint8_t));
+  if (mb.discreteInputs == NULL) {
+    // Handle allocation failure
+    // TODO: HANDLE ALLOCATION ERROR
+  }
+  mb.holdingRegisters =
+      (uint16_t *)calloc((mb.shiftReg.totalSlots + 1), sizeof(uint16_t));
+  if (mb.holdingRegisters == NULL) {
+    // Handle allocation failure
+    // TODO: HANDLE ALLOCATION ERROR
+  }
+  // Clear input registers
+  for (uint8_t i = 0; i < 3; i++) {
+    mb.inputRegisters[i] = 0;
+  }
 
   // Initialize shift registers
-  ShiftRegister_Init(&mb->shiftReg);
 
   // Set initial values
-  mb->inputRegisters[0] = totalSlots; // Total slots
-  mb->ledMode = LED_MODE_SLOT_STATUS;
-  mb->statusRegister = STATUS_BIT_SYSTEM_READY;
+  mb.inputRegisters[0] = mb.shiftReg.totalSlots; // Total slots
+  mb.ledMode = LED_MODE_SLOT_STATUS;
+  mb.statusRegister = STATUS_BIT_SYSTEM_READY;
+
+  return mb;
 }
 
 void Modbus_UpdateRegisters(ModbusInterface_t *mb) {
   // Update discrete inputs from sensor readings
-  for (uint8_t slot = 0; slot < mb->totalSlots; slot++) {
+  for (uint8_t slot = 0; slot < mb->shiftReg.totalSlots; slot++) {
     mb->discreteInputs[slot] =
         ShiftRegister_GetSlotState(&mb->shiftReg, slot) ? 1 : 0;
   }
 
   // Update input registers
-  mb->inputRegisters[0] = mb->totalSlots;
+  mb->inputRegisters[0] = mb->shiftReg.totalSlots;
   mb->inputRegisters[1] = ShiftRegister_GetFreeCount(&mb->shiftReg);
   mb->inputRegisters[2] = mb->statusRegister;
 
   // Update holding registers with current slot states
-  for (uint8_t slot = 0; slot < mb->totalSlots; slot++) {
+  for (uint8_t slot = 0; slot < mb->shiftReg.totalSlots; slot++) {
     mb->holdingRegisters[slot] =
         ShiftRegister_GetSlotState(&mb->shiftReg, slot) ? 1 : 0;
   }
 
-  mb->holdingRegisters[mb->totalSlots] = mb->ledMode;
+  mb->holdingRegisters[mb->shiftReg.totalSlots] = mb->ledMode;
 }
 
 void Modbus_Update(ModbusInterface_t *mb) {
@@ -76,21 +90,19 @@ void Modbus_Update(ModbusInterface_t *mb) {
 }
 
 uint8_t Modbus_ReadCoil(ModbusInterface_t *mb, uint16_t address) {
-  if (address >= mb->totalSlots) {
+  if (address >= mb->shiftReg.totalSlots) {
     return 0;
   }
   return mb->coils[address];
 }
 
 void Modbus_WriteCoil(ModbusInterface_t *mb, uint16_t address, uint8_t value) {
-  if (address >= mb->totalSlots) {
+  if (address >= mb->shiftReg.totalSlots) {
     return;
   }
 
   mb->coils[address] = value ? 1 : 0;
-
-  // Apply override to shift register
-  ShiftRegister_SetOverride(&mb->shiftReg, address, value != 0);
+  // TODO: implement write coil
 
   if (value) {
     mb->statusRegister |= STATUS_BIT_OVERRIDE_ACTIVE;
@@ -98,7 +110,7 @@ void Modbus_WriteCoil(ModbusInterface_t *mb, uint16_t address, uint8_t value) {
 }
 
 uint8_t Modbus_ReadDiscreteInput(ModbusInterface_t *mb, uint16_t address) {
-  if (address >= mb->totalSlots) {
+  if (address >= mb->shiftReg.totalSlots) {
     return 0;
   }
   return mb->discreteInputs[address];
@@ -112,7 +124,7 @@ uint16_t Modbus_ReadInputRegister(ModbusInterface_t *mb, uint16_t address) {
 }
 
 uint16_t Modbus_ReadHoldingRegister(ModbusInterface_t *mb, uint16_t address) {
-  if (address > mb->totalSlots) {
+  if (address > mb->shiftReg.totalSlots) {
     return 0;
   }
   return mb->holdingRegisters[address];
@@ -120,14 +132,14 @@ uint16_t Modbus_ReadHoldingRegister(ModbusInterface_t *mb, uint16_t address) {
 
 void Modbus_WriteHoldingRegister(ModbusInterface_t *mb, uint16_t address,
                                  uint16_t value) {
-  if (address > mb->totalSlots) {
+  if (address > mb->shiftReg.totalSlots) {
     return;
   }
 
   mb->holdingRegisters[address] = value;
 
   // Handle LED mode register
-  if (address == mb->totalSlots) {
+  if (address == mb->shiftReg.totalSlots) {
     mb->ledMode = value;
   }
 }

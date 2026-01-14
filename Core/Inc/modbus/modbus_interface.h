@@ -2,10 +2,10 @@
 #define MODBUS_INTERFACE_H
 
 #include "dipswitch.h"
+#include "main.h"
 #include "modbus_config.h"
 #include "shift_register.h"
 #include <stdlib.h>
-#include <string.h>
 
 typedef struct {
   // Dynamic sizes based on detected slots
@@ -17,7 +17,6 @@ typedef struct {
   // System state
   ShiftRegister_t shiftReg;
   uint8_t slaveId;
-  uint8_t totalSlots;
   uint16_t statusRegister;
   uint16_t ledMode;
 
@@ -25,7 +24,7 @@ typedef struct {
 
 // Function prototypes
 ModbusConfig_t Modbus_ReadConfig(void);
-void Modbus_Init(ModbusInterface_t *mb, uint8_t slaveId, uint8_t totalSlots);
+ModbusInterface_t Modbus_Init(uint8_t slaveId);
 void Modbus_Update(ModbusInterface_t *mb);
 void Modbus_UpdateRegisters(ModbusInterface_t *mb);
 
