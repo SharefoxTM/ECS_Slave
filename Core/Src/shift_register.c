@@ -1,57 +1,47 @@
 #include "shift_register.h"
+#include "cmsis_gcc.h"
+#include "main.h"
+#include "stm32f030x8.h"
+#include "stm32f0xx.h"
 #include <string.h>
 
+#define cycleLatch() cyclePinHigh(SR_Latch_GPIO_Port, SR_Latch_Pin)
+#define cycleClock() cyclePinLow(SR_CLK_GPIO_Port, SR_CLK_Pin)
+#define readBit() ((SR_SDI_GPIO_Port->IDR & SR_SDI_Pin) != 0)
+
 // Hardware abstraction layer functions (implement these for your STM32)
-extern void SR_SetClock(bool state);
-extern void SR_SetLatch(bool state);
-extern void SR_SetLoad(bool state);
-extern bool SR_ReadData(void);
-extern void SR_DelayUs(uint32_t us);
+void ParallelLoad(void);
+__STATIC_FORCEINLINE void cyclePinHigh(GPIO_TypeDef *GPIOx, uint16_t GPIO_Pin);
+__STATIC_FORCEINLINE void cyclePinLow(GPIO_TypeDef *GPIOx, uint16_t GPIO_Pin);
 
-void ShiftRegister_Init(ShiftRegister_t *sr) {
-  memset(sr->sensorStates, 0, sizeof(sr->sensorStates));
-  sr->activeRegisters = 0;
-  sr->totalSlots = 0;
-}
-
-static void ShiftRegister_LoadParallel(void) {
-  // Pulse load pin to capture parallel inputs from shift registers
-  SR_SetLoad(false);
-  SR_DelayUs(5);
-  SR_SetLoad(true);
-  SR_DelayUs(5);
+ShiftRegister_t ShiftRegister_Init(void) {
+  ShiftRegister_t sr;
+  memset(sr.sensorStates, 0, sizeof(sr.sensorStates));
+  sr.activeRegisters = 0;
+  sr.totalSlots = 0;
+  ShiftRegister_DetectSlots(&sr);
+  ShiftRegister_ReadSensors(&sr);
+  return sr;
 }
 
 uint8_t ShiftRegister_DetectSlots(ShiftRegister_t *sr) {
-  // Detect number of shift registers by reading until no more data
-  // Assumes shift registers are daisy-chained
-  sr->activeRegisters = 0;
-  ShiftRegister_LoadParallel();
+  SR_SDO_GPIO_Port->BRR = SR_SDO_Pin;
+  SR_Latch_GPIO_Port->BSRR = SR_Latch_Pin;
 
-  for (uint8_t srIndex = 0; srIndex < MAX_SHIFT_REGISTERS; srIndex++) {
-    uint8_t data = 0;
+  sr->totalSlots = 0;
 
-    // Read 8 bits
-    for (int8_t bit = 7; bit >= 0; bit--) {
-      data |= (SR_ReadData() << bit);
-
-      // Pulse clock
-      SR_SetClock(true);
-      SR_DelayUs(5);
-      SR_SetClock(false);
-      SR_DelayUs(5);
-    }
-
-    sr->sensorStates[srIndex] = data;
-    sr->activeRegisters++;
-
-    // If this register reads all zeros and next would too, stop detection
-    if (data == 0 && srIndex > 0) {
-      // Continue to detect full chain - don't break on zero
-    }
+  for (uint8_t i = 0; i < MAX_SHIFT_REGISTERS * BITS_PER_SR; i++) {
+    cycleClock();
   }
 
-  sr->totalSlots = sr->activeRegisters * BITS_PER_SR;
+  SR_SDO_GPIO_Port->BSRR = SR_SDO_Pin;
+
+  while ((SR_SDI_GPIO_Port->IDR & SR_SDI_Pin) == GPIO_PIN_RESET) {
+    sr->totalSlots += 1;
+
+    cycleClock();
+  }
+  sr->activeRegisters = (sr->totalSlots + BITS_PER_SR - 1) / BITS_PER_SR;
 
   return sr->totalSlots;
 }
@@ -61,20 +51,15 @@ void ShiftRegister_ReadSensors(ShiftRegister_t *sr) {
     return;
   }
 
-  ShiftRegister_LoadParallel();
+  cycleLatch();
 
   // Read only active shift registers
   for (int8_t srIndex = sr->activeRegisters - 1; srIndex >= 0; srIndex--) {
     uint8_t data = 0;
 
     for (int8_t bit = 7; bit >= 0; bit--) {
-      data |= (SR_ReadData() << bit);
-
-      // Pulse clock to shift next bit
-      SR_SetClock(true);
-      SR_DelayUs(5);
-      SR_SetClock(false);
-      SR_DelayUs(5);
+      data |= (readBit() << bit);
+      cycleClock();
     }
 
     sr->sensorStates[srIndex] = data;
@@ -83,7 +68,7 @@ void ShiftRegister_ReadSensors(ShiftRegister_t *sr) {
 
 bool ShiftRegister_GetSlotState(ShiftRegister_t *sr, uint8_t slot) {
   if (slot >= sr->totalSlots) {
-    return false;
+    return RESET;
   }
 
   uint8_t srIndex = slot / BITS_PER_SR;
@@ -112,4 +97,17 @@ uint8_t ShiftRegister_GetFreeCount(ShiftRegister_t *sr) {
 
 uint8_t ShiftRegister_GetTotalSlots(ShiftRegister_t *sr) {
   return sr->totalSlots;
+}
+
+__STATIC_FORCEINLINE void cyclePinHigh(GPIO_TypeDef *GPIOx, uint16_t GPIO_Pin) {
+  GPIOx->BSRR = GPIO_Pin;
+  delay_250ns(2);
+  GPIOx->BRR = GPIO_Pin;
+  delay_250ns(2);
+}
+__STATIC_FORCEINLINE void cyclePinLow(GPIO_TypeDef *GPIOx, uint16_t GPIO_Pin) {
+  GPIOx->BRR = GPIO_Pin;
+  delay_250ns(2);
+  GPIOx->BSRR = GPIO_Pin;
+  delay_250ns(2);
 }
