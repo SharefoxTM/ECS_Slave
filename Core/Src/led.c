@@ -1,6 +1,8 @@
 #include "led.h"
-#include "main.h"
 #include <string.h>
+
+#define led_low() (LED_GPIO_Port->BRR = LED_Pin)
+#define led_high() (LED_GPIO_Port->BSRR = LED_Pin)
 
 /* LED Buffer */
 typedef struct {
@@ -15,56 +17,10 @@ typedef struct {
   uint8_t busy;
 } led_buffer_t;
 
+__STATIC_FORCEINLINE void send_bit(uint8_t bit);
+__STATIC_FORCEINLINE void send_byte(uint8_t byte);
+
 static led_buffer_t led_buffer = {0};
-
-/* Inline GPIO functions for speed */
-__STATIC_FORCEINLINE void led_high(void) { LED_GPIO_Port->BSRR = LED_Pin; }
-
-__STATIC_FORCEINLINE void led_low(void) { LED_GPIO_Port->BRR = LED_Pin; }
-
-/**
- * Delay in CPU cycles (at 48MHz)
- * @param cycles Number of cycles to delay
- */
-__STATIC_FORCEINLINE void delay_cycles(uint32_t cycles) {
-  /* Each iteration takes ~4 cycles */
-  cycles = cycles / 4;
-  while (cycles--) {
-    __NOP();
-  }
-}
-
-/**
- * Send one bit to WS2812B using bit-banging
- * T0H: 0.4us (19 cycles @ 48MHz)
- * T0L: 0.85us (41 cycles @ 48MHz)
- * T1H: 0.8us (38 cycles @ 48MHz)
- * T1L: 0.45us (22 cycles @ 48MHz)
- */
-__STATIC_FORCEINLINE void send_bit(uint8_t bit) {
-  if (bit) {
-    /* Send '1' bit */
-    led_high();
-    delay_cycles(34); /* T1H: ~0.7us (slightly shorter for overhead) */
-    led_low();
-    delay_cycles(18); /* T1L: ~0.4us */
-  } else {
-    /* Send '0' bit */
-    led_high();
-    delay_cycles(15); /* T0H: ~0.3us (slightly shorter for overhead) */
-    led_low();
-    delay_cycles(37); /* T0L: ~0.8us */
-  }
-}
-
-/**
- * Send one byte to WS2812B (MSB first)
- */
-__STATIC_FORCEINLINE void send_byte(uint8_t byte) {
-  for (int8_t i = 7; i >= 0; i--) {
-    send_bit((byte >> i) & 1);
-  }
-}
 
 /**
  * Initialize LED controller
@@ -154,8 +110,38 @@ led_err_t led_transmit(void) {
 
   /* Reset period: >50us low */
   led_low();
-  delay_cycles(2400); /* 50us @ 48MHz */
-
+  delay_250ns(200); /* 50us @ 48MHz */
   led_buffer.busy = 0;
   return LED_OK;
+}
+/**
+ * Send one bit to WS2812B using bit-banging
+ * T0H: 0.4us (19 cycles @ 48MHz)
+ * T0L: 0.85us (41 cycles @ 48MHz)
+ * T1H: 0.8us (38 cycles @ 48MHz)
+ * T1L: 0.45us (22 cycles @ 48MHz)
+ */
+__STATIC_FORCEINLINE void send_bit(uint8_t bit) {
+  if (bit) {
+    /* Send '1' bit */
+    led_high();
+    delay_250ns(4); /* T1H: 1us */
+    led_low();
+    delay_250ns(1); /* T1L: 0.25us */
+  } else {
+    /* Send '0' bit */
+    led_high();
+    delay_250ns(1); /* T0H: 0.25us */
+    led_low();
+    delay_250ns(4); /* T0L: 1us */
+  }
+}
+
+/**
+ * Send one byte to WS2812B (MSB first)
+ */
+__STATIC_FORCEINLINE void send_byte(uint8_t byte) {
+  for (int8_t i = 7; i >= 0; i--) {
+    send_bit((byte >> i) & 1);
+  }
 }
