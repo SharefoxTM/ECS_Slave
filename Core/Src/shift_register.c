@@ -66,7 +66,7 @@ void ShiftRegister_ReadSensors(ShiftRegister_t *sr) {
   }
 }
 
-bool ShiftRegister_GetSlotState(ShiftRegister_t *sr, uint8_t slot) {
+uint8_t ShiftRegister_GetSlotState(ShiftRegister_t *sr, uint8_t slot) {
   if (slot >= sr->totalSlots) {
     return RESET;
   }

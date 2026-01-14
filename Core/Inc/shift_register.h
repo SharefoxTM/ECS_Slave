@@ -17,7 +17,7 @@ typedef struct {
 ShiftRegister_t ShiftRegister_Init(void);
 uint8_t ShiftRegister_DetectSlots(ShiftRegister_t *sr);
 void ShiftRegister_ReadSensors(ShiftRegister_t *sr);
-bool ShiftRegister_GetSlotState(ShiftRegister_t *sr, uint8_t slot);
+uint8_t ShiftRegister_GetSlotState(ShiftRegister_t *sr, uint8_t slot);
 uint8_t ShiftRegister_GetOccupiedCount(ShiftRegister_t *sr);
 uint8_t ShiftRegister_GetFreeCount(ShiftRegister_t *sr);
 uint8_t ShiftRegister_GetTotalSlots(ShiftRegister_t *sr);
