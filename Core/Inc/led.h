@@ -1,7 +1,9 @@
 #ifndef LED_H
 #define LED_H
 
+#include "main.h"
 #include <stdint.h>
+
 
 /* Configuration */
 #define MAX_LEDS 40
@@ -52,9 +54,6 @@ uint8_t led_is_busy(void);
 
 /**
  * Start LED data transmission (blocking)
- * This function will block for approximately (led_count * 30us + 50us)
- * For 40 LEDs: ~1.25ms total
- * Call this only when Modbus is idle
  * @return LED_OK if transmission completed, error code otherwise
  */
 led_err_t led_transmit(void);

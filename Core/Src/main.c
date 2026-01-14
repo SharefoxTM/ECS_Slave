@@ -153,7 +153,9 @@ void SystemClock_Config(void) {
  * Delay in CPU cycles (at 48MHz)
  * @param cycles Number of cycles to delay
  */
-inline void delay_250ns(uint32_t cycles) {
+void delay_250ns(uint32_t cycles) {
+  if (cycles == 0)
+    return;
   cycles *= 3; // 3 cycles per loop iteration
   while (cycles--) {
     __asm__ volatile("nop");
