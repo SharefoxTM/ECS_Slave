@@ -1,15 +1,10 @@
 #include "led.h"
+#include "modbus/modbus_interface.h"
+#include <stdint.h>
 #include <string.h>
 
 #define led_low() (LED_GPIO_Port->BRR = LED_Pin)
 #define led_high() (LED_GPIO_Port->BSRR = LED_Pin)
-
-/* LED Buffer */
-typedef struct {
-  uint8_t r;
-  uint8_t g;
-  uint8_t b;
-} rgb_t;
 
 typedef struct {
   rgb_t leds[MAX_LEDS];
@@ -34,7 +29,7 @@ void led_init(void) {
 /**
  * Set LED color (non-blocking queue)
  */
-led_err_t led_set_color(uint8_t index, uint8_t r, uint8_t g, uint8_t b) {
+led_err_t led_set_color(uint8_t index, rgb_t color) {
   if (index >= MAX_LEDS) {
     return LED_ERR_INVALID_INDEX;
   }
@@ -43,9 +38,9 @@ led_err_t led_set_color(uint8_t index, uint8_t r, uint8_t g, uint8_t b) {
     return LED_ERR_BUSY;
   }
 
-  led_buffer.leds[index].r = r;
-  led_buffer.leds[index].g = g;
-  led_buffer.leds[index].b = b;
+  led_buffer.leds[index].r = color.r;
+  led_buffer.leds[index].g = color.g;
+  led_buffer.leds[index].b = color.b;
 
   if (index >= led_buffer.count) {
     led_buffer.count = index + 1;
@@ -114,6 +109,23 @@ led_err_t led_transmit(void) {
   led_buffer.busy = 0;
   return LED_OK;
 }
+
+void led_updateMode(void) {
+  // TODO: implement other led modes
+
+  for (uint8_t i = 0; i < led_buffer.count; i++) {
+    if (hmb->holdingRegisters[i] & HOLDINGREG_SLOT_ERROR_FLAG)
+      led_set_color(i, led_red);
+    else if (hmb->holdingRegisters[i] & HOLDINGREG_SLOT_NEWOP_FLAG)
+      led_set_color(i, led_blue);
+    else if (hmb->holdingRegisters[i] & HOLDINGREG_SLOT_TAKEN_FLAG)
+      led_set_color(i, led_green);
+    else
+      led_set_color(i, led_black);
+  }
+  led_transmit();
+}
+
 /**
  * Send one bit to WS2812B using bit-banging
  * T0H: 0.4us (19 cycles @ 48MHz)

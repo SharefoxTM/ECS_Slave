@@ -4,7 +4,6 @@
 #include "main.h"
 #include <stdint.h>
 
-
 /* Configuration */
 #define MAX_LEDS 40
 #define BITS_PER_LED 24
@@ -16,6 +15,21 @@ typedef enum {
   LED_ERR_BUSY,
   LED_ERR_NULL_POINTER
 } led_err_t;
+
+typedef struct {
+  uint8_t r;
+  uint8_t g;
+  uint8_t b;
+} rgb_t;
+
+rgb_t led_red = {255, 0, 0};
+rgb_t led_green = {0, 255, 0};
+rgb_t led_blue = {0, 0, 255};
+rgb_t led_white = {255, 255, 255};
+rgb_t led_yellow = {255, 255, 0};
+rgb_t led_cyan = {0, 255, 255};
+rgb_t led_magenta = {255, 0, 255};
+rgb_t led_black = {0, 0, 0};
 
 /**
  * Initialize LED controller
@@ -30,7 +44,7 @@ void led_init(void);
  * @param b Blue value (0-255)
  * @return LED_OK if success, error code otherwise
  */
-led_err_t led_set_color(uint8_t index, uint8_t r, uint8_t g, uint8_t b);
+led_err_t led_set_color(uint8_t index, rgb_t color);
 
 /**
  * Get current LED color
@@ -57,5 +71,10 @@ uint8_t led_is_busy(void);
  * @return LED_OK if transmission completed, error code otherwise
  */
 led_err_t led_transmit(void);
+
+/**
+ * update the current led mode
+ */
+void led_updateMode(void);
 
 #endif /* LED_H */

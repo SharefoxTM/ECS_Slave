@@ -1,4 +1,5 @@
 #include "../Inc/modbus/modbus_interface.h"
+#include "led.h"
 
 ModbusConfig_t Modbus_ReadConfig(void) {
   ModbusConfig_t config = {0};
@@ -51,7 +52,7 @@ ModbusInterface_t Modbus_Init(uint8_t slaveId) {
 
   // Set initial values
   mb.inputRegisters[0] = mb.shiftReg.totalSlots; // Total slots
-  mb.ledMode = LED_MODE_SLOT_STATUS;
+  mb.ledMode = LED_MODE_NORMAL;
   mb.statusRegister = STATUS_BIT_SYSTEM_READY;
 
   return mb;
@@ -101,11 +102,27 @@ void Modbus_WriteCoil(ModbusInterface_t *mb, uint16_t address, uint8_t value) {
     return;
   }
 
-  mb->coils[address] = value ? 1 : 0;
+  mb->coils[address] =
+      value ? 1 : 0; // Make sure all non-zero is 1 and zero is 0
   // TODO: implement write coil
+  if (mb->coils[address] != mb->discreteInputs[address]) {
+    mb->holdingRegisters[address] |= HOLDINGREG_SLOT_NEWOP_FLAG;
+  } else {
+    mb->holdingRegisters[address] = 0;
+    if (mb->coils[address])
+      mb->holdingRegisters[address] = HOLDINGREG_SLOT_TAKEN_FLAG;
+  }
 
-  if (value) {
-    mb->statusRegister |= STATUS_BIT_OVERRIDE_ACTIVE;
+  if (mb->ledMode != LED_MODE_NORMAL) {
+    mb->ledMode = LED_MODE_NORMAL;
+    led_updateMode();
+  } else {
+    if (mb->holdingRegisters[address] & HOLDINGREG_SLOT_NEWOP_FLAG)
+      led_set_color(address, led_blue);
+    else if (mb->holdingRegisters[address] & HOLDINGREG_SLOT_TAKEN_FLAG)
+      led_set_color(address, led_green);
+    else
+      led_set_color(address, led_black);
   }
 }
 

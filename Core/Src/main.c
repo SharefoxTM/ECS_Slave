@@ -20,6 +20,7 @@
 #include "main.h"
 #include "dma.h"
 #include "gpio.h"
+#include "modbus/modbus_interface.h"
 #include "tim.h"
 #include "usart.h"
 
@@ -46,7 +47,7 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-
+ModbusInterface_t mb;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -94,6 +95,7 @@ int main(void) {
   MX_USART1_UART_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
+  mb = Modbus_Init(DipSwitch_GetSlaveId());
 
   /* USER CODE END 2 */
 
