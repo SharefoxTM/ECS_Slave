@@ -11,5 +11,15 @@
 		"starm-clangd",
 		"--query-driver=${env:CUBE_BUNDLE_PATH}/st-arm-clang/19.1.6+st.10/bin/starm-clang.exe",
 		"--query-driver=${env:CUBE_BUNDLE_PATH}/st-arm-clang/19.1.6+st.10/bin/starm-clang++.exe"
-	]
+	],
+	"clang-format.executable": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Tools\\Llvm\\x64\\bin\\clang-format.exe",
+	"editor.formatOnSave": true,
+	"editor.insertSpaces": false,
+	"editor.detectIndentation": false,
+	"[c]": {
+		"editor.defaultFormatter": "xaver.clang-format"
+	},
+	"[cpp]": {
+		"editor.defaultFormatter": "xaver.clang-format"
+	}
 }

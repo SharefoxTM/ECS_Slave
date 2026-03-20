@@ -1,0 +1,14 @@
+BasedOnStyle: LLVM
+IndentWidth: 2
+TabWidth: 2
+UseTab: ForIndentation
+ContinuationIndentWidth: 2
+ColumnLimit: 0
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: Empty
+BreakBeforeBraces: Attach
+IndentCaseLabels: true
+PointerAlignment: Right
+SortIncludes: Never
+SpaceBeforeParens: ControlStatements

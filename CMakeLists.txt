@@ -46,9 +46,13 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     ./Core/Src/leds/led_interface.c
     ./Core/Src/leds/led_modes.c
-    ./Core/Src/shift_register.c
-    ./Core/Src/modbus/modbus_interface.c
+    ./Core/Src/modbus/circularBuffer.c
     ./Core/Src/modbus/dipswitch.c
+    ./Core/Src/modbus/modbus_interface.c
+    ./Core/Src/Utilities/log.c
+    ./Core/Src/shift_register.c
+
+    
 
     # Add user sources here
 )

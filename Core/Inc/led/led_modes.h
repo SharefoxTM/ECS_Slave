@@ -2,7 +2,7 @@
 #define LED_MODES_H
 
 #include "led_interface.h"
-#include "../modbus/modbus_interface.h"
+#include "modbus/modbus_interface.h"
 
 typedef void (*led_mode_fn_t)(void);
 
