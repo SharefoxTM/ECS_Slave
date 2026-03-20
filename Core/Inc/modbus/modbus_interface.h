@@ -11,7 +11,7 @@
 #define HOLDINGREG_SLOT_ERROR_FLAG 0x0002
 #define HOLDINGREG_SLOT_NEWOP_FLAG 0x0004
 
-typedef struct {
+typedef struct modbusHandler {
   // Dynamic sizes based on detected slots
   uint8_t *coils;             // Read/Write coils for override
   uint8_t *discreteInputs;    // Read-only discrete inputs for slot states

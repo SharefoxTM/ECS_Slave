@@ -1,12 +1,13 @@
-#ifndef LED_H
-#define LED_H
+#ifndef LED_INTERFACE_H
+#define LED_INTERFACE_H
 
 #include "main.h"
-#include <stdint.h>
+#include "../modbus/modbus_interface.h"
 
 /* Configuration */
 #define MAX_LEDS 40
 #define BITS_PER_LED 24
+#define MAX_MODULES_COUNT MAX_LEDS / 8
 
 /* Error codes */
 typedef enum {
@@ -30,6 +31,26 @@ rgb_t led_yellow = {255, 255, 0};
 rgb_t led_cyan = {0, 255, 255};
 rgb_t led_magenta = {255, 0, 255};
 rgb_t led_black = {0, 0, 0};
+
+typedef enum led_brightness {
+    LED_BRIGHTNESS_LOW,
+    LED_BRIGHTNESS_MEDIUM_LOW,
+    LED_BRIGHTNESS_MEDIUM_HIGH,
+    LED_BRIGHTNESS_HIGH
+} led_brightness_t;
+
+typedef struct led {
+  led_brightness_t brightness;
+  rgb_t color;
+} argb_t;
+
+typedef struct {
+  argb_t leds[MAX_LEDS];
+  uint8_t count;
+  uint8_t busy;
+} led_buffer_t;
+
+extern led_buffer_t led_buffer;
 
 /**
  * Initialize LED controller
@@ -77,4 +98,4 @@ led_err_t led_transmit(void);
  */
 void led_updateMode(void);
 
-#endif /* LED_H */
+#endif /* LED_INTERFACE_H */

@@ -1,5 +1,5 @@
 #include "../Inc/modbus/modbus_interface.h"
-#include "led.h"
+#include "led/led_modes.h"
 
 ModbusConfig_t Modbus_ReadConfig(void) {
   ModbusConfig_t config = {0};

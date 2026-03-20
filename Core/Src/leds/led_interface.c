@@ -1,27 +1,23 @@
-#include "led.h"
-#include "modbus/modbus_interface.h"
-#include <stdint.h>
-#include <string.h>
+#include "../../Inc/led/led_interface.h"
+#include "../../Inc/led/led_modes.h"
 
 #define led_low() (LED_GPIO_Port->BRR = LED_Pin)
 #define led_high() (LED_GPIO_Port->BSRR = LED_Pin)
 
-typedef struct {
-  rgb_t leds[MAX_LEDS];
-  uint8_t count;
-  uint8_t busy;
-} led_buffer_t;
+led_buffer_t led_buffer;
 
 __STATIC_FORCEINLINE void send_bit(uint8_t bit);
 __STATIC_FORCEINLINE void send_byte(uint8_t byte);
 
-static led_buffer_t led_buffer = {0};
+led_mode_fn_t mode_off = &led_turnOff;
+led_mode_fn_t mode_normal = &led_turnOn;
+led_mode_fn_t mode_vegas = &led_vegas;
+led_mode_fn_t mode_knightrider = &led_knight_rider;
 
 /**
  * Initialize LED controller
  */
 void led_init(void) {
-  memset(&led_buffer, 0, sizeof(led_buffer));
   led_buffer.busy = 0;
   led_low();
 }
@@ -38,9 +34,9 @@ led_err_t led_set_color(uint8_t index, rgb_t color) {
     return LED_ERR_BUSY;
   }
 
-  led_buffer.leds[index].r = color.r;
-  led_buffer.leds[index].g = color.g;
-  led_buffer.leds[index].b = color.b;
+  led_buffer.leds[index].color.r = color.r;
+  led_buffer.leds[index].color.g = color.g;
+  led_buffer.leds[index].color.b = color.b;
 
   if (index >= led_buffer.count) {
     led_buffer.count = index + 1;
@@ -61,9 +57,9 @@ led_err_t led_get_color(uint8_t index, uint8_t *r, uint8_t *g, uint8_t *b) {
     return LED_ERR_NULL_POINTER;
   }
 
-  *r = led_buffer.leds[index].r;
-  *g = led_buffer.leds[index].g;
-  *b = led_buffer.leds[index].b;
+  *r = led_buffer.leds[index].color.r;
+  *g = led_buffer.leds[index].color.g;
+  *b = led_buffer.leds[index].color.b;
 
   return LED_OK;
 }
@@ -95,9 +91,9 @@ led_err_t led_transmit(void) {
 
   /* Send LED data in GRB format */
   for (uint8_t i = 0; i < led_buffer.count; i++) {
-    send_byte(led_buffer.leds[i].g); /* Green */
-    send_byte(led_buffer.leds[i].r); /* Red */
-    send_byte(led_buffer.leds[i].b); /* Blue */
+    send_byte(led_buffer.leds[i].color.g); /* Green */
+    send_byte(led_buffer.leds[i].color.r); /* Red */
+    send_byte(led_buffer.leds[i].color.b); /* Blue */
   }
 
   /* Re-enable interrupts */
@@ -111,18 +107,21 @@ led_err_t led_transmit(void) {
 }
 
 void led_updateMode(void) {
-  // TODO: implement other led modes
-
-  for (uint8_t i = 0; i < led_buffer.count; i++) {
-    if (hmb->holdingRegisters[i] & HOLDINGREG_SLOT_ERROR_FLAG)
-      led_set_color(i, led_red);
-    else if (hmb->holdingRegisters[i] & HOLDINGREG_SLOT_NEWOP_FLAG)
-      led_set_color(i, led_blue);
-    else if (hmb->holdingRegisters[i] & HOLDINGREG_SLOT_TAKEN_FLAG)
-      led_set_color(i, led_green);
-    else
-      led_set_color(i, led_black);
+  switch (hmb->ledMode) {
+  case LED_MODE_NORMAL:
+      mode_normal();
+      break;
+  case LED_MODE_VEGAS:
+      mode_vegas();
+      break;
+  case LED_MODE_KNIGHT:
+      mode_knightrider();
+      break;
+  default:
+      mode_off();
+      break;
   }
+
   led_transmit();
 }
 
