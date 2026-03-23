@@ -177,10 +177,10 @@ void Modbus_WriteHoldingRegister(ModbusInterface_t *mb, uint16_t address,
 
 	mb->holdingRegisters[address] = value;
 
-  // Handle LED mode register
-  if (address == mb->shiftReg.totalSlots) {
-    mb->ledMode = value;
-  }
+	// Handle LED mode register
+	if (address == mb->shiftReg.totalSlots) {
+		mb->ledMode = value;
+	}
 }
 
 /**
@@ -189,23 +189,25 @@ void Modbus_WriteHoldingRegister(ModbusInterface_t *mb, uint16_t address,
  * @param address The address of the slot.
  */
 void setOperationFlag(ModbusInterface_t *mb, uint16_t address) {
-  if (mb->coils[address] != mb->discreteInputs[address]) {
-    mb->holdingRegisters[address] |= HOLDINGREG_SLOT_NEWOP_FLAG;
-  } else {
-    mb->holdingRegisters[address] = 0;
-    if (mb->coils[address])
-      mb->holdingRegisters[address] = HOLDINGREG_SLOT_TAKEN_FLAG;
-  }
+	argb_t led_setting = {.brightness = LED_BRIGHTNESS_MEDIUM_HIGH};
+	if (mb->coils[address] != mb->discreteInputs[address]) {
+		mb->holdingRegisters[address] |= HOLDINGREG_SLOT_NEWOP_FLAG;
+	} else {
+		mb->holdingRegisters[address] = 0;
+		if (mb->coils[address])
+			mb->holdingRegisters[address] = HOLDINGREG_SLOT_TAKEN_FLAG;
+	}
 
-  if (mb->ledMode != LED_MODE_NORMAL) {
-    mb->ledMode = LED_MODE_NORMAL;
-    led_updateMode();
-  } else {
-    if (mb->holdingRegisters[address] & HOLDINGREG_SLOT_NEWOP_FLAG)
-      led_set_color(address, led_blue);
-    else if (mb->holdingRegisters[address] & HOLDINGREG_SLOT_TAKEN_FLAG)
-      led_set_color(address, led_green);
-    else
-      led_set_color(address, led_black);
-  }
+	if (mb->ledMode != LED_MODE_NORMAL) {
+		mb->ledMode = LED_MODE_NORMAL;
+		led_updateMode();
+	} else {
+		if (mb->holdingRegisters[address] & HOLDINGREG_SLOT_NEWOP_FLAG)
+			led_setting.color = led_blue;
+		else if (mb->holdingRegisters[address] & HOLDINGREG_SLOT_TAKEN_FLAG)
+			led_setting.color = led_green;
+		else
+			led_setting.color = led_black;
+		led_set_color(address, led_setting);
+	}
 }
