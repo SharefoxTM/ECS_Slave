@@ -1,6 +1,8 @@
 #include "modbus/modbus_interface.h"
 #include "led/led_interface.h"
 
+void setOperationFlag(ModbusInterface_t *mb, uint16_t address);
+
 uint8_t MODBUS_DMA_RXData[256];
 
 ModbusConfig_t Modbus_ReadConfig(void) {
@@ -70,6 +72,11 @@ ModbusInterface_t Modbus_Init(uint8_t slaveId) {
 	return mb;
 }
 
+/**
+ * @brief Updates all Modbus registers based on current hardware state.
+ * @param mb Pointer to the ModbusInterface_t structure.
+ * Call periodically when idle
+ */
 void Modbus_UpdateRegisters(ModbusInterface_t *mb) {
 	// Update discrete inputs from sensor readings
 	for (uint8_t slot = 0; slot < mb->shiftReg.totalSlots; slot++) {
@@ -173,5 +180,34 @@ void Modbus_WriteHoldingRegister(ModbusInterface_t *mb, uint16_t address,
 	// Handle LED mode register
 	if (address == mb->shiftReg.totalSlots) {
 		mb->ledMode = value;
+	}
+}
+
+/**
+ * @brief Sets the operation flag in the holding register for a specific slot.
+ * @param mb Pointer to the ModbusInterface_t structure.
+ * @param address The address of the slot.
+ */
+void setOperationFlag(ModbusInterface_t *mb, uint16_t address) {
+	argb_t led_setting = {.brightness = LED_BRIGHTNESS_MEDIUM_HIGH};
+	if (mb->coils[address] != mb->discreteInputs[address]) {
+		mb->holdingRegisters[address] |= HOLDINGREG_SLOT_NEWOP_FLAG;
+	} else {
+		mb->holdingRegisters[address] = 0;
+		if (mb->coils[address])
+			mb->holdingRegisters[address] = HOLDINGREG_SLOT_TAKEN_FLAG;
+	}
+
+	if (mb->ledMode != LED_MODE_NORMAL) {
+		mb->ledMode = LED_MODE_NORMAL;
+		led_updateMode();
+	} else {
+		if (mb->holdingRegisters[address] & HOLDINGREG_SLOT_NEWOP_FLAG)
+			led_setting.color = led_blue;
+		else if (mb->holdingRegisters[address] & HOLDINGREG_SLOT_TAKEN_FLAG)
+			led_setting.color = led_green;
+		else
+			led_setting.color = led_black;
+		led_set_color(address, led_setting);
 	}
 }

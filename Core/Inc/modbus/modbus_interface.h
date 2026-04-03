@@ -37,13 +37,19 @@ void Modbus_Update(ModbusInterface_t *mb);
 void Modbus_UpdateRegisters(ModbusInterface_t *mb);
 
 // Modbus callback handlers
-uint8_t Modbus_ReadCoil(ModbusInterface_t *mb, uint16_t address);
+uint8_t Modbus_ReadCoils(ModbusInterface_t *mb, uint16_t address,
+                         uint16_t count, uint8_t *output);
 void Modbus_WriteCoil(ModbusInterface_t *mb, uint16_t address, uint8_t value);
 uint8_t Modbus_ReadDiscreteInput(ModbusInterface_t *mb, uint16_t address);
 uint16_t Modbus_ReadInputRegister(ModbusInterface_t *mb, uint16_t address);
 uint16_t Modbus_ReadHoldingRegister(ModbusInterface_t *mb, uint16_t address);
 void Modbus_WriteHoldingRegister(ModbusInterface_t *mb, uint16_t address,
                                  uint16_t value);
+void Modbus_WriteMultipleHoldingRegisters(ModbusInterface_t *mb,
+                                          uint16_t address, uint16_t count,
+                                          uint16_t *values);
+void Modbus_WriteMultipleCoils(ModbusInterface_t *mb, uint16_t address,
+                               uint16_t count, uint8_t *values);
 
 
 #endif // MODBUS_INTERFACE_H
