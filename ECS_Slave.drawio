@@ -1,0 +1,226 @@
+<mxfile host="app.diagrams.net" modified="2026-03-26T00:00:00.000Z" agent="OpenAI" version="24.7.17">
+  <diagram id="ecs-slave-overview" name="Overview">
+    <mxGraphModel dx="1600" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/><mxCell id="1" parent="0"/>
+
+        <mxCell id="2" value="ECS_Slave" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="620" y="30" width="220" height="60" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="3" value="Startup &amp; Core Init&#xa;HAL_Init → Clock → GPIO/DMA/TIM/UART&#xa;Modbus_Init(DipSwitch_GetSlaveId())&#xa;printSplashScreen() → led_updateMode()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1">
+          <mxGeometry x="530" y="130" width="360" height="120" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="4" value="Modbus Interface State&#xa;slaveId&#xa;coils&#xa;discreteInputs&#xa;inputRegisters&#xa;holdingRegisters&#xa;status / ledMode" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+          <mxGeometry x="100" y="340" width="260" height="130" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="5" value="Slot Detection &amp; Sensors&#xa;ShiftRegister_Init()&#xa;Detect total slots&#xa;Read Hall sensor states" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="430" y="340" width="250" height="120" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="6" value="LED Control&#xa;LED buffer&#xa;Normal state colors&#xa;Vegas / Knight Rider / effects" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1">
+          <mxGeometry x="760" y="340" width="250" height="120" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="7" value="UART / RS485 Receive Path&#xa;USART1 + DMA&#xa;RxEvent → circular buffer" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="1090" y="350" width="240" height="100" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="8" value="Diagnostics&#xa;log.c over UART2" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1">
+          <mxGeometry x="590" y="550" width="170" height="80" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="9" value="Runtime loop currently idle&#xa;future periodic Modbus_Update() likely intended" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
+          <mxGeometry x="530" y="680" width="360" height="80" as="geometry"/>
+        </mxCell>
+
+        <mxCell id="20" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="2" target="3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="21" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="3" target="4"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="22" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="3" target="5"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="23" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="3" target="6"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="24" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="3" target="7"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="25" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="3" target="8"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="26" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;dashed=1;" edge="1" parent="1" source="4" target="6"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="27" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;dashed=1;" edge="1" parent="1" source="7" target="4"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="28" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;dashed=1;" edge="1" parent="1" source="3" target="9"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram id="ecs-slave-startup" name="Startup &amp; Main Flow">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/><mxCell id="1" parent="0"/>
+        <mxCell id="s1" value="main()" style="ellipse;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="590" y="30" width="140" height="60" as="geometry"/></mxCell>
+        <mxCell id="s2" value="HAL_Init()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1"><mxGeometry x="590" y="120" width="140" height="50" as="geometry"/></mxCell>
+        <mxCell id="s3" value="SystemClock_Config()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1"><mxGeometry x="560" y="200" width="200" height="50" as="geometry"/></mxCell>
+        <mxCell id="s4" value="Peripheral init&#xa;MX_GPIO_Init&#xa;MX_DMA_Init&#xa;MX_TIM1_Init&#xa;MX_USART1_UART_Init&#xa;MX_USART2_UART_Init" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1"><mxGeometry x="520" y="280" width="280" height="130" as="geometry"/></mxCell>
+        <mxCell id="s5" value="DipSwitch_GetSlaveId()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="250" y="450" width="180" height="60" as="geometry"/></mxCell>
+        <mxCell id="s6" value="Modbus_Init(slaveId)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1"><mxGeometry x="510" y="450" width="180" height="60" as="geometry"/></mxCell>
+        <mxCell id="s7" value="printSplashScreen()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1"><mxGeometry x="770" y="450" width="180" height="60" as="geometry"/></mxCell>
+        <mxCell id="s8" value="led_updateMode()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="1000" y="450" width="170" height="60" as="geometry"/></mxCell>
+        <mxCell id="s9" value="while(1) { }" style="shape=hexagon;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="590" y="580" width="140" height="70" as="geometry"/></mxCell>
+        <mxCell id="s10" value="No active runtime work yet" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="550" y="690" width="220" height="60" as="geometry"/></mxCell>
+        <mxCell id="s11" value="Likely intended:&#xa;Modbus_Update(&amp;mb)&#xa;process received frames&#xa;refresh LEDs as needed" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="860" y="680" width="260" height="80" as="geometry"/></mxCell>
+
+        <mxCell id="se1" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="s1" target="s2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="se2" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="s2" target="s3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="se3" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="s3" target="s4"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="se4" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="s4" target="s5"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="se5" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="s5" target="s6"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="se6" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="s6" target="s7"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="se7" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="s7" target="s8"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="se8" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="s8" target="s9"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="se9" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="s9" target="s10"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="se10" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;dashed=1;" edge="1" parent="1" source="s9" target="s11"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram id="ecs-slave-modbus" name="Modbus Interface">
+    <mxGraphModel dx="1500" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1500" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/><mxCell id="1" parent="0"/>
+        <mxCell id="m1" value="Modbus_Init(slaveId)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="70" y="60" width="180" height="60" as="geometry"/></mxCell>
+        <mxCell id="m2" value="Create circular buffer&#xa;cbuf_init()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1"><mxGeometry x="320" y="60" width="180" height="60" as="geometry"/></mxCell>
+        <mxCell id="m3" value="ShiftRegister_Init()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="560" y="60" width="180" height="60" as="geometry"/></mxCell>
+        <mxCell id="m4" value="Allocate arrays by totalSlots&#xa;coils&#xa;discreteInputs&#xa;holdingRegisters" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1"><mxGeometry x="800" y="50" width="260" height="80" as="geometry"/></mxCell>
+        <mxCell id="m5" value="Set initial state&#xa;inputRegisters[0]=totalSlots&#xa;ledMode = NORMAL&#xa;status = SYSTEM_READY" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1"><mxGeometry x="1120" y="50" width="260" height="80" as="geometry"/></mxCell>
+
+        <mxCell id="m6" value="Start RS485 RX DMA&#xa;HAL_UARTEx_ReceiveToIdle_DMA()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1"><mxGeometry x="580" y="190" width="220" height="60" as="geometry"/></mxCell>
+
+        <mxCell id="m7" value="Modbus_Update(mb)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1"><mxGeometry x="120" y="340" width="170" height="60" as="geometry"/></mxCell>
+        <mxCell id="m8" value="ShiftRegister_ReadSensors()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="360" y="340" width="200" height="60" as="geometry"/></mxCell>
+        <mxCell id="m9" value="Modbus_UpdateRegisters()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1"><mxGeometry x="630" y="340" width="200" height="60" as="geometry"/></mxCell>
+        <mxCell id="m10" value="discreteInputs ← sensor state&#xa;inputRegisters ← totals/free/status&#xa;holdingRegisters ← slots + ledMode" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1"><mxGeometry x="900" y="330" width="300" height="80" as="geometry"/></mxCell>
+
+        <mxCell id="m11" value="Write coil / holding register" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1"><mxGeometry x="160" y="510" width="210" height="60" as="geometry"/></mxCell>
+        <mxCell id="m12" value="Set slot flags&#xa;NEWOP / TAKEN" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1"><mxGeometry x="460" y="510" width="180" height="60" as="geometry"/></mxCell>
+        <mxCell id="m13" value="If ledMode != NORMAL&#xa;reset to NORMAL and refresh LEDs&#xa;else update addressed LED" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="720" y="500" width="280" height="80" as="geometry"/></mxCell>
+
+        <mxCell id="m14" value="Frame parsing / protocol service path" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="1080" y="500" width="230" height="60" as="geometry"/></mxCell>
+        <mxCell id="m15" value="Not present in provided files&#xa;likely intended consumer of hcbuf_modbus" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="1050" y="610" width="290" height="70" as="geometry"/></mxCell>
+
+        <mxCell id="me1" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="m1" target="m2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="me2" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="m2" target="m3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="me3" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="m3" target="m4"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="me4" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="m4" target="m5"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="me5" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="m5" target="m6"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="me6" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;dashed=1;" edge="1" parent="1" source="m7" target="m8"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="me7" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;dashed=1;" edge="1" parent="1" source="m8" target="m9"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="me8" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;dashed=1;" edge="1" parent="1" source="m9" target="m10"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="me9" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;dashed=1;" edge="1" parent="1" source="m11" target="m12"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="me10" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;dashed=1;" edge="1" parent="1" source="m12" target="m13"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="me11" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;dashed=1;" edge="1" parent="1" source="m6" target="m14"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="me12" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;dashed=1;" edge="1" parent="1" source="m14" target="m15"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram id="ecs-slave-shiftreg" name="Shift Register &amp; Sensor Flow">
+    <mxGraphModel dx="1400" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/><mxCell id="1" parent="0"/>
+        <mxCell id="r1" value="ShiftRegister_Init()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="80" y="80" width="170" height="60" as="geometry"/></mxCell>
+        <mxCell id="r2" value="Clear sensorStates&#xa;activeRegisters=0&#xa;totalSlots=0" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="320" y="70" width="220" height="80" as="geometry"/></mxCell>
+        <mxCell id="r3" value="ShiftRegister_DetectSlots()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="610" y="80" width="190" height="60" as="geometry"/></mxCell>
+        <mxCell id="r4" value="Drive SR_SDO / Latch / Clock&#xa;clock through chain until SDI rises&#xa;totalSlots++ per stage" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="870" y="65" width="300" height="90" as="geometry"/></mxCell>
+        <mxCell id="r5" value="activeRegisters = ceil(totalSlots / 8)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="1210" y="80" width="180" height="60" as="geometry"/></mxCell>
+
+        <mxCell id="r6" value="ShiftRegister_ReadSensors()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="260" y="260" width="210" height="60" as="geometry"/></mxCell>
+        <mxCell id="r7" value="cycleLatch()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="540" y="260" width="140" height="60" as="geometry"/></mxCell>
+        <mxCell id="r8" value="For each active register&#xa;for each bit&#xa;readBit() + cycleClock()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="740" y="250" width="240" height="80" as="geometry"/></mxCell>
+        <mxCell id="r9" value="sensorStates[srIndex] updated" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="1040" y="260" width="210" height="60" as="geometry"/></mxCell>
+
+        <mxCell id="r10" value="GetSlotState(slot)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="210" y="450" width="150" height="60" as="geometry"/></mxCell>
+        <mxCell id="r11" value="srIndex = slot / 8&#xa;bitIndex = slot % 8&#xa;return sensorStates[srIndex] &amp; mask" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="430" y="440" width="280" height="80" as="geometry"/></mxCell>
+        <mxCell id="r12" value="Occupied / Free / Total counts" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="790" y="450" width="220" height="60" as="geometry"/></mxCell>
+
+        <mxCell id="re1" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="r1" target="r2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="re2" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="r2" target="r3"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="re3" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="r3" target="r4"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="re4" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="r4" target="r5"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="re5" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="r1" target="r6"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="re6" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="r6" target="r7"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="re7" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="r7" target="r8"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="re8" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="r8" target="r9"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="re9" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="r9" target="r10"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="re10" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="r10" target="r11"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="re11" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="r11" target="r12"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram id="ecs-slave-led" name="LED Control">
+    <mxGraphModel dx="1500" dy="900" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1500" pageHeight="900" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/><mxCell id="1" parent="0"/>
+        <mxCell id="l1" value="led_init()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="70" y="60" width="130" height="60" as="geometry"/></mxCell>
+        <mxCell id="l2" value="led_buffer.busy = 0&#xa;LED line low" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="260" y="50" width="180" height="80" as="geometry"/></mxCell>
+
+        <mxCell id="l3" value="led_updateMode()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="80" y="220" width="160" height="60" as="geometry"/></mxCell>
+        <mxCell id="l4" value="Switch on hmb-&gt;ledMode" style="shape=rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="310" y="205" width="180" height="90" as="geometry"/></mxCell>
+        <mxCell id="l5" value="led_turnOff()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="560" y="140" width="140" height="60" as="geometry"/></mxCell>
+        <mxCell id="l6" value="led_turnOn()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="560" y="220" width="140" height="60" as="geometry"/></mxCell>
+        <mxCell id="l7" value="led_vegas()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="560" y="300" width="140" height="60" as="geometry"/></mxCell>
+        <mxCell id="l8" value="led_knight_rider()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="560" y="380" width="170" height="60" as="geometry"/></mxCell>
+        <mxCell id="l9" value="led_transmit()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="820" y="220" width="150" height="60" as="geometry"/></mxCell>
+
+        <mxCell id="l10" value="Disable IRQs&#xa;send each LED in GRB order&#xa;send_byte() → send_bit()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="1040" y="205" width="260" height="90" as="geometry"/></mxCell>
+        <mxCell id="l11" value="Reset low period &gt; 50us&#xa;busy = 0" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="1080" y="340" width="180" height="70" as="geometry"/></mxCell>
+
+        <mxCell id="l12" value="Normal mode colors&#xa;error = red&#xa;new op = blue&#xa;taken = green&#xa;empty = black" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="810" y="480" width="240" height="100" as="geometry"/></mxCell>
+        <mxCell id="l13" value="Vegas / KR loops continue&#xa;while circular buffer empty&#xa;stop when Modbus traffic arrives" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="1090" y="500" width="270" height="80" as="geometry"/></mxCell>
+
+        <mxCell id="le1" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="l1" target="l2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="le2" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="l3" target="l4"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="le3" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="l4" target="l5"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="le4" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="l4" target="l6"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="le5" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="l4" target="l7"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="le6" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="l4" target="l8"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="le7" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="l5" target="l9"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="le8" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="l6" target="l9"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="le9" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="l7" target="l9"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="le10" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="l8" target="l9"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="le11" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="l9" target="l10"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="le12" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="l10" target="l11"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="le13" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="l6" target="l12"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="le14" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="l7" target="l13"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="le15" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="l8" target="l13"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+
+  <diagram id="ecs-slave-uart" name="UART, DMA &amp; Diagnostics">
+    <mxGraphModel dx="1300" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1300" pageHeight="800" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/><mxCell id="1" parent="0"/>
+        <mxCell id="u1" value="USART1 (RS485 Modbus)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="70" y="80" width="180" height="60" as="geometry"/></mxCell>
+        <mxCell id="u2" value="HAL_RS485Ex_Init()&#xa;DMA RX ch3&#xa;DMA TX ch2" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1"><mxGeometry x="320" y="70" width="210" height="80" as="geometry"/></mxCell>
+        <mxCell id="u3" value="USART2 (logging)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="70" y="230" width="180" height="60" as="geometry"/></mxCell>
+        <mxCell id="u4" value="HAL_HalfDuplex_Init()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1"><mxGeometry x="320" y="230" width="180" height="60" as="geometry"/></mxCell>
+
+        <mxCell id="u5" value="DMA1_Channel2_3 IRQ" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1"><mxGeometry x="610" y="80" width="180" height="60" as="geometry"/></mxCell>
+        <mxCell id="u6" value="USART1 IRQ" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1"><mxGeometry x="610" y="170" width="140" height="60" as="geometry"/></mxCell>
+        <mxCell id="u7" value="HAL_UARTEx_RxEventCallback(USART1)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1"><mxGeometry x="840" y="80" width="280" height="60" as="geometry"/></mxCell>
+        <mxCell id="u8" value="cbuf_put(hcbuf_modbus, MODBUS_DMA_RXData, size)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1"><mxGeometry x="840" y="180" width="300" height="60" as="geometry"/></mxCell>
+        <mxCell id="u9" value="Restart ReceiveToIdle DMA" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1"><mxGeometry x="890" y="280" width="180" height="60" as="geometry"/></mxCell>
+
+        <mxCell id="u10" value="LOG_* macros" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1"><mxGeometry x="120" y="430" width="130" height="60" as="geometry"/></mxCell>
+        <mxCell id="u11" value="debugger() / vprint()" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1"><mxGeometry x="320" y="430" width="180" height="60" as="geometry"/></mxCell>
+        <mxCell id="u12" value="UART2 transmit" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" vertex="1" parent="1"><mxGeometry x="570" y="430" width="140" height="60" as="geometry"/></mxCell>
+
+        <mxCell id="ue1" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="u1" target="u2"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="ue2" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="u3" target="u4"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="ue3" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="u5" target="u7"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="ue4" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="u6" target="u7"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="ue5" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="u7" target="u8"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="ue6" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="u8" target="u9"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="ue7" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="u10" target="u11"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="ue8" style="edgeStyle=orthogonalEdgeStyle;html=1;strokeWidth=2;" edge="1" parent="1" source="u11" target="u12"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
