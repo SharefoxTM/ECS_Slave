@@ -109,6 +109,9 @@ int main(void) {
 		/* USER CODE END WHILE */
 
 		/* USER CODE BEGIN 3 */
+		Modbus_Update(&mb);
+		if (!cbuf_empty(hcbuf_modbus))
+			Modbus_ProcessReceivedData(&mb);
 	}
 	/* USER CODE END 3 */
 }
