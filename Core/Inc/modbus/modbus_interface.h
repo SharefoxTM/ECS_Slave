@@ -61,4 +61,7 @@ void Modbus_WriteMultipleCoils(ModbusInterface_t *mb, uint16_t address,
                                uint16_t count, uint16_t *values);
 uint8_t Modbus_ValidateCode(uint8_t functionCode);
 
+void Modbus_OnTxComplete(void);
+void Modbus_OnTxError(uint32_t errorCode);
+
 #endif // MODBUS_INTERFACE_H

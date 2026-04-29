@@ -8,9 +8,12 @@ void setOperationFlag(ModbusInterface_t *mb, uint16_t address);
 void processReceivedPackage(ModbusInterface_t *mb, uint8_t *data);
 void sendResponseRead(ModbusInterface_t *mb, uint8_t *requestData, uint8_t byteCount, uint8_t *responseData);
 void sendResponseWrite(ModbusInterface_t *mb, uint8_t *requestData);
+static void Modbus_StartTxDma(const uint8_t *data, uint16_t len);
 
 uint8_t MODBUS_DMA_RXData[256];
 static uint8_t MODBUS_CBUF_RXData[256];
+static uint8_t MODBUS_DMA_TXData[256];
+static volatile uint8_t MODBUS_DMA_TxBusy = 0;
 
 /**
  * @brief Reads the Modbus configuration from hardware.
@@ -74,7 +77,7 @@ ModbusInterface_t Modbus_Init(uint8_t slaveId) {
 		return mb;
 	}
 	mb.holdingRegisters =
-	  (uint16_t *)calloc((mb.shiftReg.totalSlots + 1), sizeof(uint16_t));
+	  (uint16_t *)calloc((41), sizeof(uint16_t));
 	if (mb.holdingRegisters == NULL) {
 		LOG_ERROR("Modbus init failed: holdingRegisters allocation failed, slots=%u", mb.shiftReg.totalSlots);
 		free(mb.coils);
@@ -122,7 +125,7 @@ void Modbus_UpdateRegisters(ModbusInterface_t *mb) {
 		  ShiftRegister_GetSlotState(&mb->shiftReg, slot) ? 1 : 0;
 	}
 
-	mb->holdingRegisters[mb->shiftReg.totalSlots] = mb->ledMode;
+	mb->holdingRegisters[41] = mb->ledMode;
 	LOG_VERBOSE("Registers updated: freeCount=%u, status=0x%04X", mb->inputRegisters[1], mb->inputRegisters[2]);
 }
 
@@ -310,7 +313,7 @@ uint16_t Modbus_ReadHoldingRegisters(ModbusInterface_t *mb, uint16_t address, ui
  */
 void Modbus_WriteHoldingRegister(ModbusInterface_t *mb, uint16_t address,
                                  uint16_t value) {
-	if (address > mb->shiftReg.totalSlots) {
+	if (address > mb->shiftReg.totalSlots && address != 41) {
 		LOG_WARN("Write single holding register ignored: address=%u out of range (max=%u)", address, mb->shiftReg.totalSlots);
 		return;
 	}
@@ -318,7 +321,7 @@ void Modbus_WriteHoldingRegister(ModbusInterface_t *mb, uint16_t address,
 
 	mb->holdingRegisters[address] = value;
 
-	if (address == mb->shiftReg.totalSlots) {
+	if (address == 41) {
 		mb->ledMode = value;
 		LOG_INFO("LED mode updated through holding register: mode=%u", mb->ledMode);
 	}
@@ -460,7 +463,7 @@ void processReceivedPackage(ModbusInterface_t *mb, uint8_t *data) {
 		case MODBUS_FUNCTION_WRITE_SINGLE_HOLDING_REGISTER:
 			cbuf_get(hcbuf_modbus, data, 8);
 			address = (data[2] << 8) | data[3];
-			value = (data[6] << 8) | data[7];
+			value = (data[4] << 8) | data[5];
 			LOG_DEBUG("Function WRITE_SINGLE_HOLDING_REGISTER: address=%u, value=0x%04X", address, value);
 			Modbus_WriteHoldingRegister(mb, address, value);
 			sendResponseWrite(mb, data);
@@ -483,9 +486,17 @@ void processReceivedPackage(ModbusInterface_t *mb, uint8_t *data) {
 			Modbus_WriteMultipleCoils(mb, address, count, values);
 			sendResponseWrite(mb, data);
 			break;
-		default:
-			// Not possible due to prior validation
-			LOG_ERROR("Function dispatch reached default unexpectedly: 0x%02X", functionCode);
+		default: // MODBUS_FUNCTION_READ_INPUT_REGISTERS
+			cbuf_get(hcbuf_modbus, data, 8);
+			address = (data[2] << 8) | data[3];
+			count = (data[4] << 8) | data[5];
+			LOG_DEBUG("Function READ_INPUT_REGISTERS: address=%u, count=%u", address, count);
+			byteCount = Modbus_ReadInputRegisters(mb, address, count, (uint8_t *)output);
+			LOG_DEBUG("Input register values read: %u bytes", byteCount);
+			for (uint8_t i = 0; i < byteCount; i++) {
+				LOG_DEBUG("Input register %u: 0x%02X", address + i, output[i]);
+			}
+			sendResponseRead(mb, data, byteCount, (uint8_t *)output);
 			break;
 	}
 }
@@ -493,7 +504,7 @@ void processReceivedPackage(ModbusInterface_t *mb, uint8_t *data) {
 /**
  * @brief Sends a Modbus read response over UART.
  * @details Builds a response frame: slave ID, function code, byte count, data bytes,
- *          and a CRC-16 checksum, then transmits it blocking via UART.
+ *          and a CRC-16 checksum, then transmits it via UART DMA.
  * @param mb           Pointer to the ModbusInterface_t structure.
  * @param requestData  Original request buffer (used to echo function code).
  * @param byteCount    Number of data bytes in @p responseData.
@@ -510,14 +521,14 @@ void sendResponseRead(ModbusInterface_t *mb, uint8_t *requestData, uint8_t byteC
 	response[4 + byteCount] = (crc >> 8) & 0xFF;
 	LOG_DEBUG("Sending read response: slaveId=%u, function=0x%02X, byteCount=%u, crc=0x%04X", mb->slaveId, requestData[1], byteCount, crc);
 
-	HAL_UART_Transmit(&huart1, response, 5 + byteCount, HAL_MAX_DELAY);
+	Modbus_StartTxDma(response, (uint16_t)(5U + byteCount));
 }
 
 /**
  * @brief Sends a Modbus write response (echo) over UART.
  * @details Builds an 8-byte response frame by echoing the slave ID, function code,
  *          and the 4 address/value bytes from the request, appended with a CRC-16,
- *          then transmits it blocking via UART.
+ *          then transmits it via UART DMA.
  * @param mb          Pointer to the ModbusInterface_t structure.
  * @param requestData Original request buffer to echo back.
  */
@@ -531,5 +542,40 @@ void sendResponseWrite(ModbusInterface_t *mb, uint8_t *requestData) {
 	response[7] = (crc >> 8) & 0xFF;
 	LOG_DEBUG("Sending write response: slaveId=%u, function=0x%02X, address=%u, crc=0x%04X", mb->slaveId, requestData[1], (uint16_t)((requestData[2] << 8) | requestData[3]), crc);
 
-	HAL_UART_Transmit(&huart1, response, 8, HAL_MAX_DELAY);
+	Modbus_StartTxDma(response, 8);
+}
+
+static void Modbus_StartTxDma(const uint8_t *data, uint16_t len) {
+	if (len == 0 || len > sizeof(MODBUS_DMA_TXData)) {
+		LOG_ERROR("Modbus TX DMA rejected: invalid length=%u", len);
+		return;
+	}
+
+	if (MODBUS_DMA_TxBusy != 0) {
+		LOG_WARN("Modbus TX DMA busy, dropping frame len=%u", len);
+		return;
+	}
+
+	memcpy(MODBUS_DMA_TXData, data, len);
+	HAL_GPIO_WritePin(USART1_DE_GPIO_Port, USART1_DE_Pin, GPIO_PIN_SET);
+	MODBUS_DMA_TxBusy = 1;
+	if (HAL_UART_Transmit_DMA(&huart1, MODBUS_DMA_TXData, len) != HAL_OK) {
+		HAL_GPIO_WritePin(USART1_DE_GPIO_Port, USART1_DE_Pin, GPIO_PIN_RESET);
+		MODBUS_DMA_TxBusy = 0;
+		LOG_ERROR("Failed to start UART TX DMA, state=%u error=0x%08lX",
+		          huart1.gState, (unsigned long)huart1.ErrorCode);
+		return;
+	}
+}
+
+void Modbus_OnTxComplete(void) {
+	MODBUS_DMA_TxBusy = 0;
+	HAL_GPIO_WritePin(USART1_DE_GPIO_Port, USART1_DE_Pin, GPIO_PIN_RESET);
+	LOG_DEBUG("UART1 TX complete, DE pin reset");
+}
+
+void Modbus_OnTxError(uint32_t errorCode) {
+	MODBUS_DMA_TxBusy = 0;
+	HAL_GPIO_WritePin(USART1_DE_GPIO_Port, USART1_DE_Pin, GPIO_PIN_RESET);
+	LOG_ERROR("UART1 TX error: 0x%08lX", (unsigned long)errorCode);
 }
