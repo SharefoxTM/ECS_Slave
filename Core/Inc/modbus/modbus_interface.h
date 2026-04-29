@@ -44,7 +44,7 @@ ModbusConfig_t Modbus_ReadConfig(void);
 ModbusInterface_t Modbus_Init(uint8_t slaveId);
 void Modbus_Update(ModbusInterface_t *mb);
 void Modbus_UpdateRegisters(ModbusInterface_t *mb);
-
+void Modbus_ProcessReceivedData(ModbusInterface_t *mb);
 // Modbus callback handlers
 uint8_t Modbus_ReadCoils(ModbusInterface_t *mb, uint16_t address,
                          uint16_t count, uint8_t *output);
@@ -58,7 +58,7 @@ void Modbus_WriteMultipleHoldingRegisters(ModbusInterface_t *mb,
                                           uint16_t *values);
 void Modbus_WriteCoil(ModbusInterface_t *mb, uint16_t address, uint8_t value);
 void Modbus_WriteMultipleCoils(ModbusInterface_t *mb, uint16_t address,
-                               uint16_t count, uint8_t *values);
+                               uint16_t count, uint16_t *values);
 uint8_t Modbus_ValidateCode(uint8_t functionCode);
 
 #endif // MODBUS_INTERFACE_H

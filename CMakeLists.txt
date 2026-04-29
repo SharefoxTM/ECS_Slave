@@ -49,6 +49,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     ./Core/Src/modbus/circularBuffer.c
     ./Core/Src/modbus/dipswitch.c
     ./Core/Src/modbus/modbus_interface.c
+	./Core/Src/modbus/modbus_crc.c
     ./Core/Src/Utilities/log.c
     ./Core/Src/shift_register.c
 

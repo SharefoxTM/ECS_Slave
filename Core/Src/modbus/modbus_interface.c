@@ -1,6 +1,8 @@
 #include "modbus/modbus_interface.h"
 #include "led/led_interface.h"
 #include "modbus/modbus_crc.h"
+#include "shift_register.h"
+#include <string.h>
 
 void setOperationFlag(ModbusInterface_t *mb, uint16_t address);
 void processReceivedPackage(ModbusInterface_t *mb, uint8_t *data);
@@ -8,6 +10,7 @@ void sendResponseRead(ModbusInterface_t *mb, uint8_t *requestData, uint8_t byteC
 void sendResponseWrite(ModbusInterface_t *mb, uint8_t *requestData);
 
 uint8_t MODBUS_DMA_RXData[256];
+static uint8_t MODBUS_CBUF_RXData[256];
 
 /**
  * @brief Reads the Modbus configuration from hardware.
@@ -20,12 +23,17 @@ ModbusConfig_t Modbus_ReadConfig(void) {
 
 	config.slaveId = DipSwitch_GetSlaveId();
 
-	// Slave ID range 1-16, map dipswitch 0-15 to 1-16
-	config.slaveId = (config.slaveId == 0) ? 1 : (config.slaveId + 1);
-	if (config.slaveId > 16)
+	if (config.slaveId == 0) {
+		LOG_WARN("DIP switch slave ID is 0, which is reserved for broadcast. Defaulting to slave ID 1.");
+		config.slaveId = 1;
+	} else if (config.slaveId > 16) {
+		LOG_WARN("DIP switch slave ID %u is out of range (1-16). Defaulting to slave ID 16.", config.slaveId);
 		config.slaveId = 16;
+	}
 
-	config.numSlots = 0;
+	ShiftRegister_t sr = ShiftRegister_Init();
+	config.numSlots = sr.totalSlots;
+	LOG_INFO("Modbus config loaded: slaveId=%u, numSlots=%u", config.slaveId, config.numSlots);
 
 	return config;
 }
@@ -41,28 +49,34 @@ ModbusConfig_t Modbus_ReadConfig(void) {
  */
 ModbusInterface_t Modbus_Init(uint8_t slaveId) {
 	ModbusInterface_t mb = {0};
-	uint8_t pdata[256] = {0};
-	hcbuf_modbus = cbuf_init(pdata, 256);
+	LOG_INFO("Modbus init start: requestedSlaveId=%u", slaveId);
+	hcbuf_modbus = cbuf_init(MODBUS_CBUF_RXData, sizeof(MODBUS_CBUF_RXData));
 	if (hcbuf_modbus == NULL) {
+		LOG_ERROR("Modbus init failed: circular buffer allocation failed");
 		return mb;
 	}
 
-	mb.slaveId = slaveId;
+	ModbusConfig_t config = Modbus_ReadConfig();
+
+	mb.slaveId = config.slaveId;
 	mb.shiftReg = ShiftRegister_Init();
 
 	mb.coils = (uint8_t *)calloc(mb.shiftReg.totalSlots, sizeof(uint8_t));
 	if (mb.coils == NULL) {
+		LOG_ERROR("Modbus init failed: coils allocation failed, slots=%u", mb.shiftReg.totalSlots);
 		return mb;
 	}
 	mb.discreteInputs =
 	  (uint8_t *)calloc(mb.shiftReg.totalSlots, sizeof(uint8_t));
 	if (mb.discreteInputs == NULL) {
+		LOG_ERROR("Modbus init failed: discreteInputs allocation failed, slots=%u", mb.shiftReg.totalSlots);
 		free(mb.coils);
 		return mb;
 	}
 	mb.holdingRegisters =
 	  (uint16_t *)calloc((mb.shiftReg.totalSlots + 1), sizeof(uint16_t));
 	if (mb.holdingRegisters == NULL) {
+		LOG_ERROR("Modbus init failed: holdingRegisters allocation failed, slots=%u", mb.shiftReg.totalSlots);
 		free(mb.coils);
 		free(mb.discreteInputs);
 		return mb;
@@ -75,7 +89,12 @@ ModbusInterface_t Modbus_Init(uint8_t slaveId) {
 	mb.inputRegisters[0] = mb.shiftReg.totalSlots;
 	mb.ledMode = LED_MODE_NORMAL;
 	mb.statusRegister = STATUS_BIT_SYSTEM_READY;
-	HAL_UARTEx_ReceiveToIdle_DMA(&huart1, MODBUS_DMA_RXData, 256);
+	if (HAL_UARTEx_ReceiveToIdle_DMA(&huart1, MODBUS_DMA_RXData, sizeof(MODBUS_DMA_RXData)) != HAL_OK) {
+		LOG_ERROR("Failed to start UART ReceiveToIdle DMA during Modbus init");
+	} else {
+		__HAL_DMA_DISABLE_IT(huart1.hdmarx, DMA_IT_HT);
+	}
+	LOG_INFO("Modbus init complete: slaveId=%u, slots=%u", mb.slaveId, mb.shiftReg.totalSlots);
 	return mb;
 }
 
@@ -88,6 +107,7 @@ ModbusInterface_t Modbus_Init(uint8_t slaveId) {
  * @note Call periodically when idle.
  */
 void Modbus_UpdateRegisters(ModbusInterface_t *mb) {
+	LOG_VERBOSE("Updating Modbus registers: slots=%u, ledMode=%u", mb->shiftReg.totalSlots, mb->ledMode);
 	for (uint8_t slot = 0; slot < mb->shiftReg.totalSlots; slot++) {
 		mb->discreteInputs[slot] =
 		  ShiftRegister_GetSlotState(&mb->shiftReg, slot) ? 1 : 0;
@@ -103,6 +123,7 @@ void Modbus_UpdateRegisters(ModbusInterface_t *mb) {
 	}
 
 	mb->holdingRegisters[mb->shiftReg.totalSlots] = mb->ledMode;
+	LOG_VERBOSE("Registers updated: freeCount=%u, status=0x%04X", mb->inputRegisters[1], mb->inputRegisters[2]);
 }
 
 /**
@@ -112,10 +133,12 @@ void Modbus_UpdateRegisters(ModbusInterface_t *mb) {
  * @param mb Pointer to the ModbusInterface_t structure.
  */
 void Modbus_Update(ModbusInterface_t *mb) {
+	LOG_VERBOSE("Modbus update cycle start");
 	mb->statusRegister = STATUS_BIT_SYSTEM_READY | STATUS_BIT_SCANNING;
 	ShiftRegister_ReadSensors(&mb->shiftReg);
 	Modbus_UpdateRegisters(mb);
 	mb->statusRegister &= ~STATUS_BIT_SCANNING;
+	LOG_VERBOSE("Modbus update cycle complete: status=0x%04X", mb->statusRegister);
 }
 
 /**
@@ -127,16 +150,17 @@ void Modbus_Update(ModbusInterface_t *mb) {
  */
 void Modbus_ProcessReceivedData(ModbusInterface_t *mb) {
 	uint8_t data[256];
-	uint32_t length;
+	LOG_VERBOSE("Processing Modbus RX buffer");
 	while (!cbuf_empty(hcbuf_modbus)) {
 		for (int i = 0; i < 3; i++) {
-			CB_Status_t err = cbuf_peek(hcbuf_modbus, data[i], i);
+			CB_Status_t err = cbuf_peek(hcbuf_modbus, &data[i], i);
 			if (err != CB_OK) {
-				LOG_ERROR("Circular buffer get error: %d\r\nFlushing buffer to remove corrupted data", err);
+				LOG_ERROR("Circular buffer get error: %d; flushing buffer to remove corrupted data", err);
 				cbuf_flush(hcbuf_modbus); // Flush buffer to remove corrupted data
 				return;
 			}
 		}
+		LOG_DEBUG("RX frame peek: slaveId=%u, function=0x%02X, byte2=%u", data[0], data[1], data[2]);
 		processReceivedPackage(mb, data);
 	}
 }
@@ -152,8 +176,8 @@ void Modbus_ProcessReceivedData(ModbusInterface_t *mb) {
  * @return Number of bytes written to @p output.
  */
 uint8_t Modbus_ReadCoils(ModbusInterface_t *mb, uint16_t address, uint16_t count, uint8_t *output) {
-	uint64_t coilState = 0;
 	uint8_t byteCount = 0;
+	LOG_DEBUG("Read coils request: startAddress=%u, count=%u", address, count);
 	address--; // Modbus addresses are 1-based, convert to 0-based index
 	for (uint16_t i = address; i < mb->shiftReg.totalSlots && i < address + count; i++) {
 		output[byteCount] |= mb->coils[i] ? (1 << (i - address)) : 0;
@@ -161,6 +185,7 @@ uint8_t Modbus_ReadCoils(ModbusInterface_t *mb, uint16_t address, uint16_t count
 			byteCount++;
 		}
 	}
+	LOG_DEBUG("Read coils response prepared: byteCount=%u", (uint8_t)(byteCount + 1));
 	return byteCount + 1;
 }
 
@@ -175,8 +200,10 @@ uint8_t Modbus_ReadCoils(ModbusInterface_t *mb, uint16_t address, uint16_t count
  */
 void Modbus_WriteCoil(ModbusInterface_t *mb, uint16_t address, uint8_t value) {
 	if (address >= mb->shiftReg.totalSlots) {
+		LOG_WARN("Write single coil ignored: address=%u out of range (slots=%u)", address, mb->shiftReg.totalSlots);
 		return;
 	}
+	LOG_DEBUG("Write single coil: address=%u, valueRaw=0x%02X", address, value);
 
 	mb->coils[address] =
 	  value ? 1 : 0; // Make sure all non-zero is 1 and zero is 0
@@ -192,6 +219,7 @@ void Modbus_WriteCoil(ModbusInterface_t *mb, uint16_t address, uint8_t value) {
 	if (mb->ledMode != LED_MODE_NORMAL) {
 		mb->ledMode = LED_MODE_NORMAL;
 		led_updateMode();
+		LOG_INFO("LED mode forced to normal due to coil write");
 	}
 
 	argb_t colorHolder;
@@ -203,6 +231,7 @@ void Modbus_WriteCoil(ModbusInterface_t *mb, uint16_t address, uint8_t value) {
 	else
 		colorHolder.color = led_black;
 	led_set_color(address, colorHolder);
+	LOG_DEBUG("Write single coil complete: address=%u, coil=%u, holding=0x%04X", address, mb->coils[address], mb->holdingRegisters[address]);
 }
 
 /**
@@ -215,11 +244,14 @@ void Modbus_WriteCoil(ModbusInterface_t *mb, uint16_t address, uint8_t value) {
  */
 uint8_t Modbus_ReadDiscreteInputs(ModbusInterface_t *mb, uint16_t address, uint16_t count, uint8_t *output) {
 	if (address >= mb->shiftReg.totalSlots) {
+		LOG_WARN("Read discrete inputs rejected: startAddress=%u out of range (slots=%u)", address, mb->shiftReg.totalSlots);
 		return 0;
 	}
+	LOG_DEBUG("Read discrete inputs request: startAddress=%u, count=%u", address, count);
 	for (uint8_t i = 0; i < count; i++) {
 		output[i] = mb->discreteInputs[address + i];
 	}
+	LOG_DEBUG("Read discrete inputs response prepared: count=%u", count);
 	return count;
 }
 
@@ -234,11 +266,14 @@ uint8_t Modbus_ReadDiscreteInputs(ModbusInterface_t *mb, uint16_t address, uint1
  */
 uint16_t Modbus_ReadInputRegisters(ModbusInterface_t *mb, uint16_t address, uint16_t count, uint8_t *output) {
 	if (address > 2) {
+		LOG_WARN("Read input registers rejected: startAddress=%u out of range", address);
 		return 0;
 	}
+	LOG_DEBUG("Read input registers request: startAddress=%u, count=%u", address, count);
 	for (uint8_t i = 0; i < count; i++) {
 		output[i] = mb->inputRegisters[address + i];
 	}
+	LOG_DEBUG("Read input registers response prepared: count=%u", count);
 	return count;
 }
 
@@ -254,11 +289,14 @@ uint16_t Modbus_ReadInputRegisters(ModbusInterface_t *mb, uint16_t address, uint
  */
 uint16_t Modbus_ReadHoldingRegisters(ModbusInterface_t *mb, uint16_t address, uint16_t count, uint8_t *output) {
 	if (address > mb->shiftReg.totalSlots) {
+		LOG_WARN("Read holding registers rejected: startAddress=%u out of range (max=%u)", address, mb->shiftReg.totalSlots);
 		return 0;
 	}
+	LOG_DEBUG("Read holding registers request: startAddress=%u, count=%u", address, count);
 	for (uint8_t i = 0; i < count; i++) {
 		output[i] = mb->holdingRegisters[address + i];
 	}
+	LOG_DEBUG("Read holding registers response prepared: count=%u", count);
 	return count;
 }
 
@@ -273,14 +311,42 @@ uint16_t Modbus_ReadHoldingRegisters(ModbusInterface_t *mb, uint16_t address, ui
 void Modbus_WriteHoldingRegister(ModbusInterface_t *mb, uint16_t address,
                                  uint16_t value) {
 	if (address > mb->shiftReg.totalSlots) {
+		LOG_WARN("Write single holding register ignored: address=%u out of range (max=%u)", address, mb->shiftReg.totalSlots);
 		return;
 	}
+	LOG_DEBUG("Write single holding register: address=%u, value=0x%04X", address, value);
 
 	mb->holdingRegisters[address] = value;
 
 	if (address == mb->shiftReg.totalSlots) {
 		mb->ledMode = value;
+		LOG_INFO("LED mode updated through holding register: mode=%u", mb->ledMode);
 	}
+}
+
+void Modbus_WriteMultipleCoils(ModbusInterface_t *mb, uint16_t address, uint16_t count, uint16_t *values) {
+	if (address >= mb->shiftReg.totalSlots) {
+		LOG_WARN("Write multiple coils ignored: startAddress=%u out of range (slots=%u)", address, mb->shiftReg.totalSlots);
+		return;
+	}
+	LOG_DEBUG("Write multiple coils: startAddress=%u, count=%u", address, count);
+	for (uint16_t i = 0; i < count; i++) {
+		uint8_t coilValue = (values[i / 16] >> (i % 16)) & 0x01;
+		Modbus_WriteCoil(mb, address + i, coilValue);
+	}
+	LOG_DEBUG("Write multiple coils complete: startAddress=%u, count=%u", address, count);
+}
+
+void Modbus_WriteMultipleHoldingRegisters(ModbusInterface_t *mb, uint16_t address, uint16_t count, uint16_t *values) {
+	if (address >= mb->shiftReg.totalSlots) {
+		LOG_WARN("Write multiple holding registers ignored: startAddress=%u out of range (slots=%u)", address, mb->shiftReg.totalSlots);
+		return;
+	}
+	LOG_DEBUG("Write multiple holding registers: startAddress=%u, count=%u", address, count);
+	for (uint16_t i = 0; i < count; i++) {
+		Modbus_WriteHoldingRegister(mb, address + i, values[i]);
+	}
+	LOG_DEBUG("Write multiple holding registers complete: startAddress=%u, count=%u", address, count);
 }
 
 /**
@@ -289,6 +355,7 @@ void Modbus_WriteHoldingRegister(ModbusInterface_t *mb, uint16_t address,
  * @return 0 if the function code is supported, 1 if it is unsupported.
  */
 uint8_t Modbus_ValidateCode(uint8_t functionCode) {
+	LOG_VERBOSE("Validating Modbus function code: 0x%02X", functionCode);
 	switch (functionCode) {
 		case MODBUS_FUNCTION_READ_COILS:                       // Read Coils
 		case MODBUS_FUNCTION_READ_DISCRETE_INPUTS:             // Read Discrete Inputs
@@ -300,6 +367,7 @@ uint8_t Modbus_ValidateCode(uint8_t functionCode) {
 		case MODBUS_FUNCTION_WRITE_MULTIPLE_HOLDING_REGISTERS: // Write Multiple Holding Registers
 			return 0;                                            // Valid function code
 		default:
+			LOG_WARN("Unsupported Modbus function code: 0x%02X", functionCode);
 			return 1; // Invalid function code
 	}
 }
@@ -314,6 +382,7 @@ uint8_t Modbus_ValidateCode(uint8_t functionCode) {
  * @param address 0-based slot address.
  */
 void setOperationFlag(ModbusInterface_t *mb, uint16_t address) {
+	LOG_DEBUG("Updating operation flag for slot %d: coil=%d, discreteInput=%d", address, mb->coils[address], mb->discreteInputs[address]);
 	argb_t led_setting = {.brightness = LED_BRIGHTNESS_MEDIUM_HIGH};
 	if (mb->coils[address] != mb->discreteInputs[address]) {
 		mb->holdingRegisters[address] |= HOLDINGREG_SLOT_NEWOP_FLAG;
@@ -352,35 +421,39 @@ void processReceivedPackage(ModbusInterface_t *mb, uint8_t *data) {
 	uint16_t address;
 	uint16_t count;
 	uint16_t value;
+	uint16_t *values;
+	uint8_t output[256] = {0};
+	LOG_DEBUG("Processing Modbus function: 0x%02X", functionCode);
 	switch (functionCode) {
 		case MODBUS_FUNCTION_READ_COILS:
 			cbuf_get(hcbuf_modbus, pData, 8);
 			address = (pData[2] << 8) | pData[3];
 			count = (pData[4] << 8) | pData[5];
-			uint8_t output[((count) / 8) + 1] = {0};
-			uint8_t byteCount = Modbus_ReadCoils(mb, address, count, output);
+			LOG_DEBUG("Function READ_COILS: address=%u, count=%u", address, count);
+			byteCount = Modbus_ReadCoils(mb, address, count, output);
 			sendResponseRead(mb, data, byteCount, output);
 			break;
 		case MODBUS_FUNCTION_READ_DISCRETE_INPUTS:
 			cbuf_get(hcbuf_modbus, pData, 8);
 			address = (pData[2] << 8) | pData[3];
 			count = (pData[4] << 8) | pData[5];
-			uint8_t output[((count) / 8) + 1] = {0};
-			uint8_t byteCount = Modbus_ReadDiscreteInputs(mb, address, count, output);
+			LOG_DEBUG("Function READ_DISCRETE_INPUTS: address=%u, count=%u", address, count);
+			byteCount = Modbus_ReadDiscreteInputs(mb, address, count, output);
 			sendResponseRead(mb, data, byteCount, output);
 			break;
 		case MODBUS_FUNCTION_READ_HOLDING_REGISTERS:
 			cbuf_get(hcbuf_modbus, data, data[2]);
 			address = (data[2] << 8) | data[3];
 			count = (data[4] << 8) | data[5];
-			uint16_t output[count] = {0};
-			uint8_t byteCount = Modbus_ReadHoldingRegisters(mb, address, count, (uint8_t *)output);
+			LOG_DEBUG("Function READ_HOLDING_REGISTERS: address=%u, count=%u", address, count);
+			byteCount = Modbus_ReadHoldingRegisters(mb, address, count, (uint8_t *)output);
 			sendResponseRead(mb, data, byteCount, (uint8_t *)output);
 			break;
 		case MODBUS_FUNCTION_WRITE_SINGLE_COIL:
 			cbuf_get(hcbuf_modbus, data, 8);
 			address = (data[2] << 8) | data[3];
 			value = (data[6] << 8) | data[7];
+			LOG_DEBUG("Function WRITE_SINGLE_COIL: address=%u, value=0x%04X", address, value);
 			Modbus_WriteCoil(mb, address, value);
 			sendResponseWrite(mb, data);
 			break;
@@ -388,6 +461,7 @@ void processReceivedPackage(ModbusInterface_t *mb, uint8_t *data) {
 			cbuf_get(hcbuf_modbus, data, 8);
 			address = (data[2] << 8) | data[3];
 			value = (data[6] << 8) | data[7];
+			LOG_DEBUG("Function WRITE_SINGLE_HOLDING_REGISTER: address=%u, value=0x%04X", address, value);
 			Modbus_WriteHoldingRegister(mb, address, value);
 			sendResponseWrite(mb, data);
 			break;
@@ -395,7 +469,8 @@ void processReceivedPackage(ModbusInterface_t *mb, uint8_t *data) {
 			cbuf_get(hcbuf_modbus, data, data[6] + 7);
 			address = (data[2] << 8) | data[3];
 			count = (data[4] << 8) | data[5];
-			uint8_t *values = &data[6];
+			values = (uint16_t *)&data[6];
+			LOG_DEBUG("Function WRITE_MULTIPLE_HOLDING_REGISTERS: address=%u, count=%u", address, count);
 			Modbus_WriteMultipleHoldingRegisters(mb, address, count, values);
 			sendResponseWrite(mb, data);
 			break;
@@ -403,12 +478,14 @@ void processReceivedPackage(ModbusInterface_t *mb, uint8_t *data) {
 			cbuf_get(hcbuf_modbus, data, data[6] + 7);
 			address = (data[2] << 8) | data[3];
 			count = (data[4] << 8) | data[5];
-			uint8_t *values = &data[6];
+			values = (uint16_t *)&data[6];
+			LOG_DEBUG("Function WRITE_MULTIPLE_COILS: address=%u, count=%u", address, count);
 			Modbus_WriteMultipleCoils(mb, address, count, values);
 			sendResponseWrite(mb, data);
 			break;
 		default:
 			// Not possible due to prior validation
+			LOG_ERROR("Function dispatch reached default unexpectedly: 0x%02X", functionCode);
 			break;
 	}
 }
@@ -431,6 +508,7 @@ void sendResponseRead(ModbusInterface_t *mb, uint8_t *requestData, uint8_t byteC
 	uint16_t crc = crc16(response, 3 + byteCount);
 	response[3 + byteCount] = crc & 0xFF;
 	response[4 + byteCount] = (crc >> 8) & 0xFF;
+	LOG_DEBUG("Sending read response: slaveId=%u, function=0x%02X, byteCount=%u, crc=0x%04X", mb->slaveId, requestData[1], byteCount, crc);
 
 	HAL_UART_Transmit(&huart1, response, 5 + byteCount, HAL_MAX_DELAY);
 }
@@ -451,6 +529,7 @@ void sendResponseWrite(ModbusInterface_t *mb, uint8_t *requestData) {
 	uint16_t crc = crc16(response, 6);
 	response[6] = crc & 0xFF;
 	response[7] = (crc >> 8) & 0xFF;
+	LOG_DEBUG("Sending write response: slaveId=%u, function=0x%02X, address=%u, crc=0x%04X", mb->slaveId, requestData[1], (uint16_t)((requestData[2] << 8) | requestData[3]), crc);
 
 	HAL_UART_Transmit(&huart1, response, 8, HAL_MAX_DELAY);
 }

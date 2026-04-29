@@ -97,6 +97,7 @@ int main(void) {
 	MX_USART2_UART_Init();
 	/* USER CODE BEGIN 2 */
 	mb = Modbus_Init(DipSwitch_GetSlaveId());
+	hmb = &mb;
 
 	printSplashScreen();
 

@@ -231,29 +231,49 @@ void printSplashScreen(void) {
 	LOG_INFO("|_____/|______/_/    \\_\\/   |______|\r");
 }
 
-void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t size) {
-	if (huart->Instance == USART1) {
-		CB_Status_t err;
-		if (size == 0) {
-			// No data received, just restart DMA
-			HAL_UARTEx_ReceiveToIdle_DMA(&huart1, MODBUS_DMA_RXData, 256);
-			return;
-		}
-		if (MODBUS_DMA_RXData[0] != hmb->slaveId && MODBUS_DMA_RXData[0] != 0) {
-			// Not for this slave, discard packet and restart DMA
-			HAL_UARTEx_ReceiveToIdle_DMA(&huart1, MODBUS_DMA_RXData, 256);
-			return;
-		}
-		if (Modbus_ValidateCode(MODBUS_DMA_RXData[1]) != 0) {
-			// Invalid function code or byte count, discard packet and restart DMA
-			HAL_UARTEx_ReceiveToIdle_DMA(&huart1, MODBUS_DMA_RXData, 256);
-			return;
-		}
-		err = cbuf_put(hcbuf_modbus, MODBUS_DMA_RXData, size);
-		if (err != CB_OK) {
-			LOG_ERROR("Circular buffer put error: %d", err);
-		}
-		HAL_UARTEx_ReceiveToIdle_DMA(&huart1, MODBUS_DMA_RXData, 256);
+static void Modbus_RestartRxDma(void) {
+	if (HAL_UARTEx_ReceiveToIdle_DMA(&huart1, MODBUS_DMA_RXData, sizeof(MODBUS_DMA_RXData)) != HAL_OK) {
+		LOG_ERROR("Failed to restart UART ReceiveToIdle DMA");
+		return;
 	}
+	__HAL_DMA_DISABLE_IT(huart1.hdmarx, DMA_IT_HT);
+}
+
+void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t size) {
+	if (huart->Instance != USART1) {
+		return;
+	}
+
+	LOG_DEBUG("UART receive event: size=%u type=%u", size, HAL_UARTEx_GetRxEventType(huart));
+
+	if ((hmb == NULL) || (hcbuf_modbus == NULL)) {
+		LOG_ERROR("Modbus context not initialized in UART Rx callback");
+		Modbus_RestartRxDma();
+		return;
+	}
+
+	if (size < 2) {
+		Modbus_RestartRxDma();
+		return;
+	}
+
+	if (MODBUS_DMA_RXData[0] != hmb->slaveId && MODBUS_DMA_RXData[0] != 0) {
+		LOG_DEBUG("Received packet for different slave ID: %u; expected %u or broadcast (0)", MODBUS_DMA_RXData[0], hmb->slaveId);
+		Modbus_RestartRxDma();
+		return;
+	}
+
+	if (Modbus_ValidateCode(MODBUS_DMA_RXData[1]) != 0) {
+		LOG_DEBUG("Received packet with invalid function code: 0x%02X", MODBUS_DMA_RXData[1]);
+		Modbus_RestartRxDma();
+		return;
+	}
+
+	CB_Status_t err = cbuf_put(hcbuf_modbus, MODBUS_DMA_RXData, size);
+	if (err != CB_OK) {
+		LOG_ERROR("Circular buffer put error: %d", err);
+	}
+
+	Modbus_RestartRxDma();
 }
 /* USER CODE END 1 */
