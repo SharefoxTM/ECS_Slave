@@ -54,7 +54,7 @@ CB_Status_t cbuf_put(cbuf_handle_t c, uint8_t *data, uint32_t length) {
 		LOG_ERROR("Circular buffer full!");
 		return CB_ERR_FULL;
 	}
-	if (c->max - cbuf_size(c) < length) {
+	if ((c->max - cbuf_size(c) - 1U) < length) {
 		LOG_ERROR("Not enough space in buffer");
 		return CB_ERR_SIZE;
 	}
@@ -90,7 +90,7 @@ CB_Status_t cbuf_get(cbuf_handle_t c, uint8_t *data, uint32_t length) {
 
 	if (c->tail + length > c->max) {
 		memcpy(data, &c->buffer[c->tail], c->max - c->tail);
-		memcpy(data, &c->buffer[0], length - (c->max - c->tail));
+		memcpy(data + (c->max - c->tail), &c->buffer[0], length - (c->max - c->tail));
 		c->tail = length - (c->max - c->tail);
 	} else {
 		memcpy(data, &c->buffer[c->tail], length);
@@ -114,13 +114,13 @@ CB_Status_t cbuf_peek(cbuf_handle_t c, uint8_t *data, uint32_t offset) {
 		LOG_ERROR("Circular buffer empty!");
 		return CB_ERR_EMPTY;
 	}
-	if (cbuf_size(c) < offset) {
+	if (cbuf_size(c) <= offset) {
 		LOG_ERROR("Not enough data in buffer!");
 		return CB_ERR_SIZE;
 	}
 
 	index = c->tail + offset;
-	if (index > c->max) {
+	if (index >= c->max) {
 		index -= c->max;
 	}
 
@@ -141,7 +141,7 @@ uint8_t cbuf_full(cbuf_handle_t c) {
 		LOG_ERROR("Parameters of circular buffer were not initialised!");
 		return 2;
 	}
-	return (c->head + 1 == c->tail);
+	return (((c->head + 1U) % c->max) == c->tail);
 }
 
 uint32_t cbuf_capacity(cbuf_handle_t c) {
@@ -157,7 +157,7 @@ uint32_t cbuf_size(cbuf_handle_t c) {
 		LOG_ERROR("Parameters of circular buffer were not initialised!");
 		return 0;
 	}
-	if (cbuf_empty(c) != 1)
-		return c->max;
+	if (cbuf_empty(c) == 1)
+		return 0;
 	return c->head >= c->tail ? c->head - c->tail : c->max + c->head - c->tail;
 }

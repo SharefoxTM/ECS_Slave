@@ -9,6 +9,10 @@ void processReceivedPackage(ModbusInterface_t *mb, uint8_t *data);
 void sendResponseRead(ModbusInterface_t *mb, uint8_t *requestData, uint8_t byteCount, uint8_t *responseData);
 void sendResponseWrite(ModbusInterface_t *mb, uint8_t *requestData);
 static void Modbus_StartTxDma(const uint8_t *data, uint16_t len);
+static uint8_t Modbus_IsValidCrc(const uint8_t *frame, uint16_t frameLen);
+
+#define MODBUS_INPUT_REGISTER_COUNT 3U
+#define MODBUS_HOLDING_REGISTER_COUNT 42U
 
 uint8_t MODBUS_DMA_RXData[256];
 static uint8_t MODBUS_CBUF_RXData[256];
@@ -77,7 +81,7 @@ ModbusInterface_t Modbus_Init(uint8_t slaveId) {
 		return mb;
 	}
 	mb.holdingRegisters =
-	  (uint16_t *)calloc((41), sizeof(uint16_t));
+	  (uint16_t *)calloc((MODBUS_HOLDING_REGISTER_COUNT), sizeof(uint16_t));
 	if (mb.holdingRegisters == NULL) {
 		LOG_ERROR("Modbus init failed: holdingRegisters allocation failed, slots=%u", mb.shiftReg.totalSlots);
 		free(mb.coils);
@@ -268,16 +272,18 @@ uint8_t Modbus_ReadDiscreteInputs(ModbusInterface_t *mb, uint16_t address, uint1
  * @return Number of values written, or 0 if @p address is out of range.
  */
 uint16_t Modbus_ReadInputRegisters(ModbusInterface_t *mb, uint16_t address, uint16_t count, uint8_t *output) {
-	if (address > 2) {
-		LOG_WARN("Read input registers rejected: startAddress=%u out of range", address);
+	if (count == 0 || address >= MODBUS_INPUT_REGISTER_COUNT || ((uint32_t)address + count) > MODBUS_INPUT_REGISTER_COUNT) {
+		LOG_WARN("Read input registers rejected: startAddress=%u count=%u out of range", address, count);
 		return 0;
 	}
 	LOG_DEBUG("Read input registers request: startAddress=%u, count=%u", address, count);
-	for (uint8_t i = 0; i < count; i++) {
-		output[i] = mb->inputRegisters[address + i];
+	for (uint16_t i = 0; i < count; i++) {
+		uint16_t value = mb->inputRegisters[address + i];
+		output[(2U * i)] = (uint8_t)((value >> 8) & 0xFF);
+		output[(2U * i) + 1U] = (uint8_t)(value & 0xFF);
 	}
-	LOG_DEBUG("Read input registers response prepared: count=%u", count);
-	return count;
+	LOG_DEBUG("Read input registers response prepared: byteCount=%u", (uint16_t)(count * 2U));
+	return (uint16_t)(count * 2U);
 }
 
 /**
@@ -291,16 +297,19 @@ uint16_t Modbus_ReadInputRegisters(ModbusInterface_t *mb, uint16_t address, uint
  * @return Number of values written, or 0 if @p address is out of range.
  */
 uint16_t Modbus_ReadHoldingRegisters(ModbusInterface_t *mb, uint16_t address, uint16_t count, uint8_t *output) {
-	if (address > mb->shiftReg.totalSlots) {
-		LOG_WARN("Read holding registers rejected: startAddress=%u out of range (max=%u)", address, mb->shiftReg.totalSlots);
+	if (count == 0 || address >= MODBUS_HOLDING_REGISTER_COUNT || ((uint32_t)address + count) > MODBUS_HOLDING_REGISTER_COUNT) {
+		LOG_WARN("Read holding registers rejected: startAddress=%u count=%u out of range (max=%u)",
+		         address, count, MODBUS_HOLDING_REGISTER_COUNT - 1U);
 		return 0;
 	}
 	LOG_DEBUG("Read holding registers request: startAddress=%u, count=%u", address, count);
-	for (uint8_t i = 0; i < count; i++) {
-		output[i] = mb->holdingRegisters[address + i];
+	for (uint16_t i = 0; i < count; i++) {
+		uint16_t value = mb->holdingRegisters[address + i];
+		output[(2U * i)] = (uint8_t)((value >> 8) & 0xFF);
+		output[(2U * i) + 1U] = (uint8_t)(value & 0xFF);
 	}
-	LOG_DEBUG("Read holding registers response prepared: count=%u", count);
-	return count;
+	LOG_DEBUG("Read holding registers response prepared: byteCount=%u", (uint16_t)(count * 2U));
+	return (uint16_t)(count * 2U);
 }
 
 /**
@@ -420,85 +429,206 @@ void setOperationFlag(ModbusInterface_t *mb, uint16_t address) {
  */
 void processReceivedPackage(ModbusInterface_t *mb, uint8_t *data) {
 	uint8_t functionCode = data[1], byteCount;
-	uint8_t pData[256] = {0};
+	uint8_t requestData[256] = {0};
+	CB_Status_t cbStatus;
+	uint16_t requestLen;
 	uint16_t address;
 	uint16_t count;
 	uint16_t value;
-	uint16_t *values;
 	uint8_t output[256] = {0};
+	uint16_t registerValues[MODBUS_HOLDING_REGISTER_COUNT] = {0};
 	LOG_DEBUG("Processing Modbus function: 0x%02X", functionCode);
 	switch (functionCode) {
 		case MODBUS_FUNCTION_READ_COILS:
-			cbuf_get(hcbuf_modbus, pData, 8);
-			address = (pData[2] << 8) | pData[3];
-			count = (pData[4] << 8) | pData[5];
+			requestLen = 8;
+			cbStatus = cbuf_get(hcbuf_modbus, requestData, requestLen);
+			if (cbStatus != CB_OK) {
+				LOG_WARN("READ_COILS request dequeue failed: %d", cbStatus);
+				return;
+			}
+			if (!Modbus_IsValidCrc(requestData, requestLen)) {
+				LOG_WARN("READ_COILS request CRC invalid");
+				return;
+			}
+			address = (requestData[2] << 8) | requestData[3];
+			count = (requestData[4] << 8) | requestData[5];
 			LOG_DEBUG("Function READ_COILS: address=%u, count=%u", address, count);
 			byteCount = Modbus_ReadCoils(mb, address, count, output);
-			sendResponseRead(mb, data, byteCount, output);
+			if (requestData[0] != 0) {
+				sendResponseRead(mb, requestData, byteCount, output);
+			}
 			break;
 		case MODBUS_FUNCTION_READ_DISCRETE_INPUTS:
-			cbuf_get(hcbuf_modbus, pData, 8);
-			address = (pData[2] << 8) | pData[3];
-			count = (pData[4] << 8) | pData[5];
+			requestLen = 8;
+			cbStatus = cbuf_get(hcbuf_modbus, requestData, requestLen);
+			if (cbStatus != CB_OK) {
+				LOG_WARN("READ_DISCRETE_INPUTS request dequeue failed: %d", cbStatus);
+				return;
+			}
+			if (!Modbus_IsValidCrc(requestData, requestLen)) {
+				LOG_WARN("READ_DISCRETE_INPUTS request CRC invalid");
+				return;
+			}
+			address = (requestData[2] << 8) | requestData[3];
+			count = (requestData[4] << 8) | requestData[5];
 			LOG_DEBUG("Function READ_DISCRETE_INPUTS: address=%u, count=%u", address, count);
 			byteCount = Modbus_ReadDiscreteInputs(mb, address, count, output);
-			sendResponseRead(mb, data, byteCount, output);
+			if (requestData[0] != 0) {
+				sendResponseRead(mb, requestData, byteCount, output);
+			}
 			break;
 		case MODBUS_FUNCTION_READ_HOLDING_REGISTERS:
-			cbuf_get(hcbuf_modbus, data, data[2]);
-			address = (data[2] << 8) | data[3];
-			count = (data[4] << 8) | data[5];
+			requestLen = 8;
+			cbStatus = cbuf_get(hcbuf_modbus, requestData, requestLen);
+			if (cbStatus != CB_OK) {
+				LOG_WARN("READ_HOLDING_REGISTERS request dequeue failed: %d", cbStatus);
+				return;
+			}
+			if (!Modbus_IsValidCrc(requestData, requestLen)) {
+				LOG_WARN("READ_HOLDING_REGISTERS request CRC invalid");
+				return;
+			}
+			address = (requestData[2] << 8) | requestData[3];
+			count = (requestData[4] << 8) | requestData[5];
 			LOG_DEBUG("Function READ_HOLDING_REGISTERS: address=%u, count=%u", address, count);
 			byteCount = Modbus_ReadHoldingRegisters(mb, address, count, (uint8_t *)output);
-			sendResponseRead(mb, data, byteCount, (uint8_t *)output);
+			if (requestData[0] != 0) {
+				sendResponseRead(mb, requestData, byteCount, (uint8_t *)output);
+			}
 			break;
 		case MODBUS_FUNCTION_WRITE_SINGLE_COIL:
-			cbuf_get(hcbuf_modbus, data, 8);
-			address = (data[2] << 8) | data[3];
-			value = (data[6] << 8) | data[7];
+			requestLen = 8;
+			cbStatus = cbuf_get(hcbuf_modbus, requestData, requestLen);
+			if (cbStatus != CB_OK) {
+				LOG_WARN("WRITE_SINGLE_COIL request dequeue failed: %d", cbStatus);
+				return;
+			}
+			if (!Modbus_IsValidCrc(requestData, requestLen)) {
+				LOG_WARN("WRITE_SINGLE_COIL request CRC invalid");
+				return;
+			}
+			address = (requestData[2] << 8) | requestData[3];
+			value = (requestData[4] << 8) | requestData[5];
 			LOG_DEBUG("Function WRITE_SINGLE_COIL: address=%u, value=0x%04X", address, value);
-			Modbus_WriteCoil(mb, address, value);
-			sendResponseWrite(mb, data);
+			Modbus_WriteCoil(mb, address, (value == 0xFF00U) ? 1U : 0U);
+			if (requestData[0] != 0) {
+				sendResponseWrite(mb, requestData);
+			}
 			break;
 		case MODBUS_FUNCTION_WRITE_SINGLE_HOLDING_REGISTER:
-			cbuf_get(hcbuf_modbus, data, 8);
-			address = (data[2] << 8) | data[3];
-			value = (data[4] << 8) | data[5];
+			requestLen = 8;
+			cbStatus = cbuf_get(hcbuf_modbus, requestData, requestLen);
+			if (cbStatus != CB_OK) {
+				LOG_WARN("WRITE_SINGLE_HOLDING_REGISTER request dequeue failed: %d", cbStatus);
+				return;
+			}
+			if (!Modbus_IsValidCrc(requestData, requestLen)) {
+				LOG_WARN("WRITE_SINGLE_HOLDING_REGISTER request CRC invalid");
+				return;
+			}
+			address = (requestData[2] << 8) | requestData[3];
+			value = (requestData[4] << 8) | requestData[5];
 			LOG_DEBUG("Function WRITE_SINGLE_HOLDING_REGISTER: address=%u, value=0x%04X", address, value);
 			Modbus_WriteHoldingRegister(mb, address, value);
-			sendResponseWrite(mb, data);
+			if (requestData[0] != 0) {
+				sendResponseWrite(mb, requestData);
+			}
 			break;
 		case MODBUS_FUNCTION_WRITE_MULTIPLE_HOLDING_REGISTERS:
-			cbuf_get(hcbuf_modbus, data, data[6] + 7);
-			address = (data[2] << 8) | data[3];
-			count = (data[4] << 8) | data[5];
-			values = (uint16_t *)&data[6];
+			requestLen = (uint16_t)data[6] + 9U;
+			if (requestLen > sizeof(requestData)) {
+				LOG_WARN("WRITE_MULTIPLE_HOLDING_REGISTERS request too long: %u", requestLen);
+				return;
+			}
+			cbStatus = cbuf_get(hcbuf_modbus, requestData, requestLen);
+			if (cbStatus != CB_OK) {
+				LOG_WARN("WRITE_MULTIPLE_HOLDING_REGISTERS request dequeue failed: %d", cbStatus);
+				return;
+			}
+			if (!Modbus_IsValidCrc(requestData, requestLen)) {
+				LOG_WARN("WRITE_MULTIPLE_HOLDING_REGISTERS request CRC invalid");
+				return;
+			}
+			address = (requestData[2] << 8) | requestData[3];
+			count = (requestData[4] << 8) | requestData[5];
+			if (requestData[6] != (uint8_t)(count * 2U) || count > MODBUS_HOLDING_REGISTER_COUNT) {
+				LOG_WARN("WRITE_MULTIPLE_HOLDING_REGISTERS invalid payload: count=%u byteCount=%u", count, requestData[6]);
+				return;
+			}
+			for (uint16_t i = 0; i < count; i++) {
+				registerValues[i] = (uint16_t)((requestData[7U + (2U * i)] << 8) | requestData[8U + (2U * i)]);
+			}
 			LOG_DEBUG("Function WRITE_MULTIPLE_HOLDING_REGISTERS: address=%u, count=%u", address, count);
-			Modbus_WriteMultipleHoldingRegisters(mb, address, count, values);
-			sendResponseWrite(mb, data);
+			Modbus_WriteMultipleHoldingRegisters(mb, address, count, registerValues);
+			if (requestData[0] != 0) {
+				sendResponseWrite(mb, requestData);
+			}
 			break;
 		case MODBUS_FUNCTION_WRITE_MULTIPLE_COILS:
-			cbuf_get(hcbuf_modbus, data, data[6] + 7);
-			address = (data[2] << 8) | data[3];
-			count = (data[4] << 8) | data[5];
-			values = (uint16_t *)&data[6];
+			requestLen = (uint16_t)data[6] + 9U;
+			if (requestLen > sizeof(requestData)) {
+				LOG_WARN("WRITE_MULTIPLE_COILS request too long: %u", requestLen);
+				return;
+			}
+			cbStatus = cbuf_get(hcbuf_modbus, requestData, requestLen);
+			if (cbStatus != CB_OK) {
+				LOG_WARN("WRITE_MULTIPLE_COILS request dequeue failed: %d", cbStatus);
+				return;
+			}
+			if (!Modbus_IsValidCrc(requestData, requestLen)) {
+				LOG_WARN("WRITE_MULTIPLE_COILS request CRC invalid");
+				return;
+			}
+			address = (requestData[2] << 8) | requestData[3];
+			count = (requestData[4] << 8) | requestData[5];
 			LOG_DEBUG("Function WRITE_MULTIPLE_COILS: address=%u, count=%u", address, count);
-			Modbus_WriteMultipleCoils(mb, address, count, values);
-			sendResponseWrite(mb, data);
+			for (uint16_t i = 0; i < count; i++) {
+				uint8_t packedByte = requestData[7U + (i / 8U)];
+				uint8_t coilValue = (packedByte >> (i % 8U)) & 0x01U;
+				Modbus_WriteCoil(mb, address + i, coilValue);
+			}
+			if (requestData[0] != 0) {
+				sendResponseWrite(mb, requestData);
+			}
 			break;
 		default: // MODBUS_FUNCTION_READ_INPUT_REGISTERS
-			cbuf_get(hcbuf_modbus, data, 8);
-			address = (data[2] << 8) | data[3];
-			count = (data[4] << 8) | data[5];
+			requestLen = 8;
+			cbStatus = cbuf_get(hcbuf_modbus, requestData, requestLen);
+			if (cbStatus != CB_OK) {
+				LOG_WARN("READ_INPUT_REGISTERS request dequeue failed: %d", cbStatus);
+				return;
+			}
+			if (!Modbus_IsValidCrc(requestData, requestLen)) {
+				LOG_WARN("READ_INPUT_REGISTERS request CRC invalid");
+				return;
+			}
+			address = (requestData[2] << 8) | requestData[3];
+			count = (requestData[4] << 8) | requestData[5];
 			LOG_DEBUG("Function READ_INPUT_REGISTERS: address=%u, count=%u", address, count);
 			byteCount = Modbus_ReadInputRegisters(mb, address, count, (uint8_t *)output);
 			LOG_DEBUG("Input register values read: %u bytes", byteCount);
 			for (uint8_t i = 0; i < byteCount; i++) {
 				LOG_DEBUG("Input register %u: 0x%02X", address + i, output[i]);
 			}
-			sendResponseRead(mb, data, byteCount, (uint8_t *)output);
+			if (requestData[0] != 0) {
+				sendResponseRead(mb, requestData, byteCount, (uint8_t *)output);
+			}
 			break;
 	}
+}
+
+static uint8_t Modbus_IsValidCrc(const uint8_t *frame, uint16_t frameLen) {
+	uint16_t frameCrc;
+	uint16_t calculatedCrc;
+
+	if (frame == NULL || frameLen < 4U) {
+		return 0U;
+	}
+
+	frameCrc = (uint16_t)(frame[frameLen - 2U]) | ((uint16_t)frame[frameLen - 1U] << 8);
+	calculatedCrc = crc16((uint8_t *)frame, (uint16_t)(frameLen - 2U));
+
+	return (frameCrc == calculatedCrc) ? 1U : 0U;
 }
 
 /**
