@@ -43,25 +43,17 @@ extern ModbusInterface_t *hmb;
 ModbusConfig_t Modbus_ReadConfig(void);
 ModbusInterface_t Modbus_Init(uint8_t slaveId);
 void Modbus_Update(ModbusInterface_t *mb);
-void Modbus_UpdateRegisters(ModbusInterface_t *mb);
-void Modbus_ProcessReceivedData(ModbusInterface_t *mb);
-// Modbus callback handlers
-uint8_t Modbus_ReadCoils(ModbusInterface_t *mb, uint16_t address,
-                         uint16_t count, uint8_t *output);
-uint8_t Modbus_ReadDiscreteInputs(ModbusInterface_t *mb, uint16_t address, uint16_t count, uint8_t *output);
-uint16_t Modbus_ReadInputRegisters(ModbusInterface_t *mb, uint16_t address, uint16_t count, uint8_t *output);
-uint16_t Modbus_ReadHoldingRegisters(ModbusInterface_t *mb, uint16_t address, uint16_t count, uint8_t *output);
-void Modbus_WriteHoldingRegister(ModbusInterface_t *mb, uint16_t address,
-                                 uint16_t value);
-void Modbus_WriteMultipleHoldingRegisters(ModbusInterface_t *mb,
-                                          uint16_t address, uint16_t count,
-                                          uint16_t *values);
-void Modbus_WriteCoil(ModbusInterface_t *mb, uint16_t address, uint8_t value);
-void Modbus_WriteMultipleCoils(ModbusInterface_t *mb, uint16_t address,
-                               uint16_t count, uint16_t *values);
+void Modbus_ProcessReceivedData(ModbusInterface_t *mb, uint8_t *pData, uint16_t size);
 uint8_t Modbus_ValidateCode(uint8_t functionCode);
 
-void Modbus_OnTxComplete(void);
-void Modbus_OnTxError(uint32_t errorCode);
+// Modbus package handlers
+HAL_StatusTypeDef Modbus_ReadCoils(ModbusInterface_t *mb, uint8_t *data);
+HAL_StatusTypeDef Modbus_ReadDiscreteInputs(ModbusInterface_t *mb, uint8_t *data);
+HAL_StatusTypeDef Modbus_ReadInputRegisters(ModbusInterface_t *mb, uint8_t *data);
+HAL_StatusTypeDef Modbus_ReadHoldingRegisters(ModbusInterface_t *mb, uint8_t *data);
+HAL_StatusTypeDef Modbus_WriteHoldingRegister(ModbusInterface_t *mb, uint8_t *data);
+HAL_StatusTypeDef Modbus_WriteMultipleHoldingRegisters(ModbusInterface_t *mb, uint8_t *data);
+HAL_StatusTypeDef Modbus_WriteCoil(ModbusInterface_t *mb, uint8_t *data);
+HAL_StatusTypeDef Modbus_WriteMultipleCoils(ModbusInterface_t *mb, uint8_t *data);
 
 #endif // MODBUS_INTERFACE_H

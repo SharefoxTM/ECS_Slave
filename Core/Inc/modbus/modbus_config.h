@@ -8,6 +8,7 @@
 #define MAX_SHIFT_REGISTERS 5 // Maximum 40 slots (5 x 8-bit)
 #define BITS_PER_SR 8
 #define MAX_SLOTS (MAX_SHIFT_REGISTERS * BITS_PER_SR) // 40 maximum
+#define MODBUS_HOLDING_REGISTER_COUNT 42
 
 // Dipswitch configuration pins
 #define DIPSWITCH_BIT0_PIN // Configure for your STM32

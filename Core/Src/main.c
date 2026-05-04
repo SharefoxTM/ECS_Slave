@@ -18,7 +18,6 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include "dma.h"
 #include "tim.h"
 #include "usart.h"
 #include "gpio.h"
@@ -88,13 +87,11 @@ int main(void) {
 
 	/* Initialize all configured peripherals */
 	MX_GPIO_Init();
-	MX_DMA_Init();
 	MX_TIM1_Init();
 	MX_USART1_UART_Init();
 	MX_USART2_UART_Init();
 	/* USER CODE BEGIN 2 */
 	mb = Modbus_Init(DipSwitch_GetSlaveId());
-	hmb = &mb;
 
 	printSplashScreen();
 
@@ -108,8 +105,6 @@ int main(void) {
 
 		/* USER CODE BEGIN 3 */
 		Modbus_Update(&mb);
-		if (!cbuf_empty(hcbuf_modbus))
-			Modbus_ProcessReceivedData(&mb);
 	}
 	/* USER CODE END 3 */
 }

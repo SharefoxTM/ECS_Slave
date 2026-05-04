@@ -38,7 +38,7 @@ extern UART_HandleTypeDef huart1;
 extern UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN Private defines */
-extern uint8_t MODBUS_DMA_RXData[256];
+extern uint8_t MODBUS_RXData[256];
 
 typedef struct {
 	uint32_t rxEventCount;
@@ -70,3 +70,4 @@ ModbusRxDiag_t Modbus_GetRxDiag(void);
 #endif
 
 #endif /* __USART_H__ */
+

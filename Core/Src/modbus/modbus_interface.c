@@ -3,22 +3,22 @@
 #include "led/led_interface.h"
 #include "modbus/modbus_crc.h"
 #include "shift_register.h"
+#include "stm32f0xx_hal_uart_ex.h"
+#include <stdint.h>
 #include <string.h>
 
+void updateRegisters(ModbusInterface_t *mb);
 void setOperationFlag(ModbusInterface_t *mb, uint16_t address);
 void processReceivedPackage(ModbusInterface_t *mb, uint8_t *data);
-void sendResponseRead(ModbusInterface_t *mb, uint8_t *requestData, uint8_t byteCount, uint8_t *responseData);
-void sendResponseWrite(ModbusInterface_t *mb, uint8_t *requestData);
-static void Modbus_StartTxDma(const uint8_t *data, uint16_t len);
-static uint8_t Modbus_IsValidCrc(const uint8_t *frame, uint16_t frameLen);
+HAL_StatusTypeDef sendResponseRead(ModbusInterface_t *mb, uint8_t *requestData, uint8_t byteCount, uint8_t *responseData);
+HAL_StatusTypeDef sendResponseWrite(ModbusInterface_t *mb, uint8_t *requestData);
+HAL_StatusTypeDef sendResponseWriteMultiple(ModbusInterface_t *mb, uint8_t *requestData);
+HAL_StatusTypeDef sendExceptionResponse(ModbusInterface_t *mb, uint8_t functionCode, uint8_t exceptionCode);
+HAL_StatusTypeDef startTx(const uint8_t *data, uint16_t len, uint32_t timeout);
+uint8_t checkCrc(const uint8_t *frame, uint16_t frameLen);
+void appendCrc(uint8_t *frame, uint16_t length);
 
-#define MODBUS_INPUT_REGISTER_COUNT 3U
-#define MODBUS_HOLDING_REGISTER_COUNT 42U
-
-uint8_t MODBUS_DMA_RXData[256];
-static uint8_t MODBUS_CBUF_RXData[256];
-static uint8_t MODBUS_DMA_TXData[256];
-static volatile uint8_t MODBUS_DMA_TxBusy = 0;
+uint8_t MODBUS_RXData[256];
 
 /**
  * @brief Reads the Modbus configuration from hardware.
@@ -58,11 +58,6 @@ ModbusConfig_t Modbus_ReadConfig(void) {
 ModbusInterface_t Modbus_Init(uint8_t slaveId) {
 	ModbusInterface_t mb = {0};
 	LOG_INFO("Modbus init start: requestedSlaveId=%u", slaveId);
-	hcbuf_modbus = cbuf_init(MODBUS_CBUF_RXData, sizeof(MODBUS_CBUF_RXData));
-	if (hcbuf_modbus == NULL) {
-		LOG_ERROR("Modbus init failed: circular buffer allocation failed");
-		return mb;
-	}
 
 	ModbusConfig_t config = Modbus_ReadConfig();
 
@@ -97,39 +92,11 @@ ModbusInterface_t Modbus_Init(uint8_t slaveId) {
 	mb.inputRegisters[0] = mb.shiftReg.totalSlots;
 	mb.ledMode = LED_MODE_NORMAL;
 	mb.statusRegister = STATUS_BIT_SYSTEM_READY;
-	if (HAL_UARTEx_ReceiveToIdle_DMA(&huart1, MODBUS_DMA_RXData, sizeof(MODBUS_DMA_RXData)) != HAL_OK) {
-		LOG_ERROR("Failed to start UART ReceiveToIdle DMA during Modbus init");
-	} else {
-		__HAL_DMA_DISABLE_IT(huart1.hdmarx, DMA_IT_HT);
+	if (HAL_UARTEx_ReceiveToIdle_IT(&huart1, MODBUS_RXData, sizeof(MODBUS_RXData)) != HAL_OK) {
+		LOG_ERROR("Failed to start UART ReceiveToIdle IT during Modbus init");
 	}
 	LOG_INFO("Modbus init complete: slaveId=%u, slots=%u", mb.slaveId, mb.shiftReg.totalSlots);
 	return mb;
-}
-
-/**
- * @brief Updates all Modbus registers based on current hardware state.
- * @details Refreshes discrete inputs from slot sensors, updates input registers
- *          with slot count, free count, and status, and syncs holding registers
- *          with current slot states and LED mode.
- * @param mb Pointer to the ModbusInterface_t structure.
- * @note Call periodically when idle.
- */
-void Modbus_UpdateRegisters(ModbusInterface_t *mb) {
-	for (uint8_t slot = 0; slot < mb->shiftReg.totalSlots; slot++) {
-		mb->discreteInputs[slot] =
-		  ShiftRegister_GetSlotState(&mb->shiftReg, slot) ? 1 : 0;
-	}
-
-	mb->inputRegisters[0] = mb->shiftReg.totalSlots;
-	mb->inputRegisters[1] = ShiftRegister_GetFreeCount(&mb->shiftReg);
-	mb->inputRegisters[2] = mb->statusRegister;
-
-	for (uint8_t slot = 0; slot < mb->shiftReg.totalSlots; slot++) {
-		mb->holdingRegisters[slot] =
-		  ShiftRegister_GetSlotState(&mb->shiftReg, slot) ? 1 : 0;
-	}
-
-	mb->holdingRegisters[41] = mb->ledMode;
 }
 
 /**
@@ -141,7 +108,7 @@ void Modbus_UpdateRegisters(ModbusInterface_t *mb) {
 void Modbus_Update(ModbusInterface_t *mb) {
 	mb->statusRegister = STATUS_BIT_SYSTEM_READY | STATUS_BIT_SCANNING;
 	ShiftRegister_ReadSensors(&mb->shiftReg);
-	Modbus_UpdateRegisters(mb);
+	updateRegisters(mb);
 	mb->statusRegister &= ~STATUS_BIT_SCANNING;
 }
 
@@ -151,209 +118,26 @@ void Modbus_Update(ModbusInterface_t *mb) {
  *          dispatches to processReceivedPackage(). Flushes the buffer if a read
  *          error is encountered.
  * @param mb Pointer to the ModbusInterface_t structure.
+ * @param pData Pointer to the received data.
+ * @param size Size of the received data.
  */
-void Modbus_ProcessReceivedData(ModbusInterface_t *mb) {
-	uint8_t data[256];
-	while (!cbuf_empty(hcbuf_modbus)) {
-		for (int i = 0; i < 3; i++) {
-			CB_Status_t err = cbuf_peek(hcbuf_modbus, &data[i], i);
-			if (err != CB_OK) {
-				LOG_ERROR("Circular buffer get error: %d; flushing buffer to remove corrupted data", err);
-				cbuf_flush(hcbuf_modbus); // Flush buffer to remove corrupted data
-				return;
-			}
-		}
-		LOG_DEBUG("RX frame peek: slaveId=%u, function=0x%02X, byte2=%u", data[0], data[1], data[2]);
-		processReceivedPackage(mb, data);
-	}
-}
-
-/**
- * @brief Reads coil states into a packed byte array.
- * @details Packs up to @p count coil values starting at @p address (1-based)
- *          into @p output, with 8 coils per byte LSB-first.
- * @param mb      Pointer to the ModbusInterface_t structure.
- * @param address 1-based starting coil address.
- * @param count   Number of coils to read.
- * @param output  Buffer to write the packed coil bytes into.
- * @return Number of bytes written to @p output.
- */
-uint8_t Modbus_ReadCoils(ModbusInterface_t *mb, uint16_t address, uint16_t count, uint8_t *output) {
-	uint8_t byteCount = 0;
-	LOG_DEBUG("Read coils request: startAddress=%u, count=%u", address, count);
-	for (uint16_t i = address; i < mb->shiftReg.totalSlots && i < address + count; i++) {
-		output[byteCount] |= mb->coils[i] ? (1 << (i - address)) : 0;
-		if ((i - address) == 7) {
-			byteCount++;
-		}
-	}
-	LOG_DEBUG("Read coils response prepared: byteCount=%u", (uint8_t)(byteCount + 1));
-	return byteCount + 1;
-}
-
-/**
- * @brief Writes a value to a single coil and updates the LED indicator.
- * @details Sets the coil state, updates the corresponding holding register flags
- *          (NEWOP or TAKEN), and updates the LED color for the slot. If the device
- *          is not in normal LED mode, resets it to normal mode first.
- * @param mb      Pointer to the ModbusInterface_t structure.
- * @param address 0-based coil address.
- * @param value   Non-zero to set the coil, zero to clear it.
- */
-void Modbus_WriteCoil(ModbusInterface_t *mb, uint16_t address, uint8_t value) {
-	if (address >= mb->shiftReg.totalSlots) {
-		LOG_WARN("Write single coil ignored: address=%u out of range (slots=%u)", address, mb->shiftReg.totalSlots);
+void Modbus_ProcessReceivedData(ModbusInterface_t *mb, uint8_t *pData, uint16_t size) {
+	uint8_t len;
+	if (size < 3) {
+		LOG_WARN("Received Modbus data too short to process: size=%u", size);
 		return;
 	}
-	LOG_DEBUG("Write single coil: address=%u, valueRaw=0x%02X", address, value);
-
-	mb->coils[address] =
-	  value ? 1 : 0; // Make sure all non-zero is 1 and zero is 0
-
-	if (mb->coils[address] != mb->discreteInputs[address]) {
-		mb->holdingRegisters[address] |= HOLDINGREG_SLOT_NEWOP_FLAG;
+	if (pData[1] == MODBUS_FUNCTION_WRITE_MULTIPLE_HOLDING_REGISTERS || pData[1] == MODBUS_FUNCTION_WRITE_MULTIPLE_COILS) {
+		len = 9 + pData[6]; // 9 bytes header + byte count
 	} else {
-		mb->holdingRegisters[address] = 0;
-		if (mb->coils[address])
-			mb->holdingRegisters[address] = HOLDINGREG_SLOT_TAKEN_FLAG;
+		len = 8;
 	}
-
-	if (mb->ledMode != LED_MODE_NORMAL) {
-		mb->ledMode = LED_MODE_NORMAL;
-		led_updateMode();
-		LOG_INFO("LED mode forced to normal due to coil write");
-	}
-
-	argb_t colorHolder;
-	colorHolder.brightness = LED_BRIGHTNESS_MEDIUM_HIGH;
-	if (mb->holdingRegisters[address] & HOLDINGREG_SLOT_NEWOP_FLAG)
-		colorHolder.color = led_blue;
-	else if (mb->holdingRegisters[address] & HOLDINGREG_SLOT_TAKEN_FLAG)
-		colorHolder.color = led_green;
-	else
-		colorHolder.color = led_black;
-	led_set_color(address, colorHolder);
-	LOG_DEBUG("Write single coil complete: address=%u, coil=%u, holding=0x%04X", address, mb->coils[address], mb->holdingRegisters[address]);
-}
-
-/**
- * @brief Reads discrete input states into an output buffer.
- * @param mb      Pointer to the ModbusInterface_t structure.
- * @param address 0-based starting discrete input address.
- * @param count   Number of discrete inputs to read.
- * @param output  Buffer to write the discrete input values into (one byte per input).
- * @return Number of values written, or 0 if @p address is out of range.
- */
-uint8_t Modbus_ReadDiscreteInputs(ModbusInterface_t *mb, uint16_t address, uint16_t count, uint8_t *output) {
-	if (address >= mb->shiftReg.totalSlots) {
-		LOG_WARN("Read discrete inputs rejected: startAddress=%u out of range (slots=%u)", address, mb->shiftReg.totalSlots);
-		return 0;
-	}
-	LOG_DEBUG("Read discrete inputs request: startAddress=%u, count=%u", address, count);
-	for (uint8_t i = 0; i < count; i++) {
-		output[i / 8] |= mb->discreteInputs[address + i] << (i % 8);
-	}
-	LOG_DEBUG("Read discrete inputs response prepared: count=%u", count);
-	return count;
-}
-
-/**
- * @brief Reads input register values into an output buffer.
- * @details Input registers 0-2 contain: total slots, free slot count, and status register.
- * @param mb      Pointer to the ModbusInterface_t structure.
- * @param address 0-based starting input register address (max 2).
- * @param count   Number of registers to read.
- * @param output  Buffer to write the register values into.
- * @return Number of values written, or 0 if @p address is out of range.
- */
-uint16_t Modbus_ReadInputRegisters(ModbusInterface_t *mb, uint16_t address, uint16_t count, uint8_t *output) {
-	if (count == 0 || address >= MODBUS_INPUT_REGISTER_COUNT || ((uint32_t)address + count) > MODBUS_INPUT_REGISTER_COUNT) {
-		LOG_WARN("Read input registers rejected: startAddress=%u count=%u out of range", address, count);
-		return 0;
-	}
-	LOG_DEBUG("Read input registers request: startAddress=%u, count=%u", address, count);
-	for (uint16_t i = 0; i < count; i++) {
-		uint16_t value = mb->inputRegisters[address + i];
-		output[(2U * i)] = (uint8_t)((value >> 8) & 0xFF);
-		output[(2U * i) + 1U] = (uint8_t)(value & 0xFF);
-	}
-	LOG_DEBUG("Read input registers response prepared: byteCount=%u", (uint16_t)(count * 2U));
-	return (uint16_t)(count * 2U);
-}
-
-/**
- * @brief Reads holding register values into an output buffer.
- * @details Holding registers 0..totalSlots-1 contain per-slot status flags;
- *          register at index totalSlots contains the LED mode.
- * @param mb      Pointer to the ModbusInterface_t structure.
- * @param address 0-based starting holding register address.
- * @param count   Number of registers to read.
- * @param output  Buffer to write the register values into.
- * @return Number of values written, or 0 if @p address is out of range.
- */
-uint16_t Modbus_ReadHoldingRegisters(ModbusInterface_t *mb, uint16_t address, uint16_t count, uint8_t *output) {
-	if (count == 0 || address >= MODBUS_HOLDING_REGISTER_COUNT || ((uint32_t)address + count) > MODBUS_HOLDING_REGISTER_COUNT) {
-		LOG_WARN("Read holding registers rejected: startAddress=%u count=%u out of range (max=%u)",
-		         address, count, MODBUS_HOLDING_REGISTER_COUNT - 1U);
-		return 0;
-	}
-	LOG_DEBUG("Read holding registers request: startAddress=%u, count=%u", address, count);
-	for (uint16_t i = 0; i < count; i++) {
-		uint16_t value = mb->holdingRegisters[address + i];
-		output[(2U * i)] = (uint8_t)((value >> 8) & 0xFF);
-		output[(2U * i) + 1U] = (uint8_t)(value & 0xFF);
-	}
-	LOG_DEBUG("Read holding registers response prepared: byteCount=%u", (uint16_t)(count * 2U));
-	return (uint16_t)(count * 2U);
-}
-
-/**
- * @brief Writes a value to a single holding register.
- * @details If the target address is the LED mode register (index totalSlots),
- *          the LED mode is updated accordingly.
- * @param mb      Pointer to the ModbusInterface_t structure.
- * @param address 0-based holding register address.
- * @param value   Value to write.
- */
-void Modbus_WriteHoldingRegister(ModbusInterface_t *mb, uint16_t address,
-                                 uint16_t value) {
-	if (address > mb->shiftReg.totalSlots && address != 41) {
-		LOG_WARN("Write single holding register ignored: address=%u out of range (max=%u)", address, mb->shiftReg.totalSlots);
+	if (!checkCrc(pData, len)) {
+		LOG_WARN("Request CRC invalid");
+		// FIXME: Send Modbus exception response for CRC error
 		return;
 	}
-	LOG_DEBUG("Write single holding register: address=%u, value=0x%04X", address, value);
-
-	mb->holdingRegisters[address] = value;
-
-	if (address == 41) {
-		mb->ledMode = value;
-		LOG_INFO("LED mode updated through holding register: mode=%u", mb->ledMode);
-	}
-}
-
-void Modbus_WriteMultipleCoils(ModbusInterface_t *mb, uint16_t address, uint16_t count, uint16_t *values) {
-	if (address >= mb->shiftReg.totalSlots) {
-		LOG_WARN("Write multiple coils ignored: startAddress=%u out of range (slots=%u)", address, mb->shiftReg.totalSlots);
-		return;
-	}
-	LOG_DEBUG("Write multiple coils: startAddress=%u, count=%u", address, count);
-	for (uint16_t i = 0; i < count; i++) {
-		uint8_t coilValue = (values[i / 16] >> (i % 16)) & 0x01;
-		Modbus_WriteCoil(mb, address + i, coilValue);
-	}
-	LOG_DEBUG("Write multiple coils complete: startAddress=%u, count=%u", address, count);
-}
-
-void Modbus_WriteMultipleHoldingRegisters(ModbusInterface_t *mb, uint16_t address, uint16_t count, uint16_t *values) {
-	if (address >= mb->shiftReg.totalSlots) {
-		LOG_WARN("Write multiple holding registers ignored: startAddress=%u out of range (slots=%u)", address, mb->shiftReg.totalSlots);
-		return;
-	}
-	LOG_DEBUG("Write multiple holding registers: startAddress=%u, count=%u", address, count);
-	for (uint16_t i = 0; i < count; i++) {
-		Modbus_WriteHoldingRegister(mb, address + i, values[i]);
-	}
-	LOG_DEBUG("Write multiple holding registers complete: startAddress=%u, count=%u", address, count);
+	processReceivedPackage(mb, pData);
 }
 
 /**
@@ -377,6 +161,262 @@ uint8_t Modbus_ValidateCode(uint8_t functionCode) {
 			LOG_WARN("Unsupported Modbus function code: 0x%02X", functionCode);
 			return 1; // Invalid function code
 	}
+}
+
+/**
+ * @brief Reads coil states into a packed byte array.
+ * @details Packs up to @p count coil values starting at @p address (1-based)
+ *          into @p output, with 8 coils per byte LSB-first.
+ * @param mb      Pointer to the ModbusInterface_t structure.
+ * @param data		Buffer containing the Modbus request data, including address and count.
+ * @return HAL_OK if the response was sent successfully, or an error status if sending failed.
+ */
+HAL_StatusTypeDef Modbus_ReadCoils(ModbusInterface_t *mb, uint8_t *data) {
+	uint8_t byteCount = 0;
+	uint16_t address = (data[2] << 8) | data[3];
+	uint16_t count = (data[4] << 8) | data[5];
+	uint8_t holder[5] = {0};
+	LOG_DEBUG("Read coils request: startAddress=%u, count=%u", address, count);
+	for (uint16_t i = address; i < mb->shiftReg.totalSlots && i < address + count; i++) {
+		holder[(i - address) / 8] |= (mb->coils[i] & 0x01) << ((i - address) % 8);
+		if ((i - address) == 7) {
+			byteCount++;
+		}
+	}
+	byteCount++;
+	LOG_DEBUG("Read coils response prepared: byteCount=%u", byteCount);
+	return sendResponseRead(mb, data, byteCount, holder);
+}
+
+/**
+ * @brief Reads discrete input states into an output buffer.
+ * @param mb      Pointer to the ModbusInterface_t structure.
+ * @param data		Buffer containing the Modbus request data, including address and count.
+ * @return HAL_OK if the response was sent successfully, or an error status if sending failed.
+ */
+HAL_StatusTypeDef Modbus_ReadDiscreteInputs(ModbusInterface_t *mb, uint8_t *data) {
+	uint16_t address = (data[2] << 8) | data[3];
+	uint16_t count = (data[4] << 8) | data[5];
+	if (address >= mb->shiftReg.totalSlots) {
+		LOG_WARN("Read discrete inputs rejected: startAddress=%u out of range (slots=%u)", address, mb->shiftReg.totalSlots);
+		return HAL_ERROR;
+	}
+	uint8_t holder[5] = {0}, byteCount = 0;
+	LOG_DEBUG("Read discrete inputs request: startAddress=%u, count=%u", address, count);
+	for (uint16_t i = address; i < mb->shiftReg.totalSlots && i < address + count; i++) {
+		holder[(i - address) / 8] |= (mb->discreteInputs[i] & 0x01) << ((i - address) % 8);
+		if ((i - address) == 7) {
+			byteCount++;
+		}
+	}
+	byteCount++;
+	LOG_DEBUG("Read discrete inputs response prepared: count=%u", byteCount);
+	return sendResponseRead(mb, data, byteCount, holder);
+}
+
+/**
+ * @brief Reads input register values into an output buffer.
+ * @details Input registers 0-2 contain: total slots, free slot count, and status register.
+ * @param mb      Pointer to the ModbusInterface_t structure.
+ * @param address 0-based starting input register address (max 2).
+ * @param count   Number of registers to read.
+ * @param output  Buffer to write the register values into.
+ * @return Number of values written, or 0 if @p address is out of range.
+ */
+HAL_StatusTypeDef Modbus_ReadInputRegisters(ModbusInterface_t *mb, uint8_t *data) {
+	uint16_t address = (data[2] << 8) | data[3];
+	uint16_t count = (data[4] << 8) | data[5];
+	if (count == 0 || address >= 3 || ((uint32_t)address + count) > 3) {
+		LOG_WARN("Read input registers rejected: startAddress=%u count=%u out of range (max=2)", address, count);
+		return HAL_ERROR;
+	}
+	LOG_DEBUG("Read input registers request: startAddress=%u, count=%u", address, count);
+	uint8_t output[6] = {0};
+	uint8_t byteCount = 0;
+	for (uint16_t i = address; i < address + count; i++) {
+		uint16_t value = mb->inputRegisters[i];
+		output[(2 * i)] = (uint8_t)((value >> 8) & 0xFF);
+		output[(2 * i) + 1] = (uint8_t)(value & 0xFF);
+		byteCount += 2;
+	}
+	LOG_DEBUG("Read input registers response prepared: byteCount=%u", byteCount);
+	return sendResponseRead(mb, data, byteCount, output);
+}
+
+/**
+ * @brief Reads holding register values into an output buffer.
+ * @details Holding registers 0..totalSlots-1 contain per-slot status flags;
+ *          register at index totalSlots contains the LED mode.
+ * @param mb      Pointer to the ModbusInterface_t structure.
+ * @param address 0-based starting holding register address.
+ * @param count   Number of registers to read.
+ * @param output  Buffer to write the register values into.
+ * @return Number of values written, or 0 if @p address is out of range.
+ */
+HAL_StatusTypeDef Modbus_ReadHoldingRegisters(ModbusInterface_t *mb, uint8_t *data) {
+	uint16_t address = (data[2] << 8) | data[3];
+	uint16_t count = (data[4] << 8) | data[5];
+	if (count == 0 || address >= MODBUS_HOLDING_REGISTER_COUNT || ((uint32_t)address + count) > MODBUS_HOLDING_REGISTER_COUNT) {
+		LOG_WARN("Read holding registers rejected: startAddress=%u count=%u out of range (max=%u)",
+		         address, count, MODBUS_HOLDING_REGISTER_COUNT - 1U);
+		return 0;
+	}
+	uint8_t output[MODBUS_HOLDING_REGISTER_COUNT * 2];
+	uint8_t byteCount = 0;
+	LOG_DEBUG("Read holding registers request: startAddress=%u, count=%u", address, count);
+	for (uint16_t i = 0; i < count; i++) {
+		uint16_t value = mb->holdingRegisters[address + i];
+		output[(2 * i)] = (uint8_t)((value >> 8) & 0xFF);
+		output[(2 * i) + 1] = (uint8_t)(value & 0xFF);
+		byteCount += 2;
+	}
+	LOG_DEBUG("Read holding registers response prepared: byteCount=%u", byteCount);
+	return sendResponseRead(mb, data, byteCount, output);
+}
+
+/**
+ * @brief Writes a value to a single holding register.
+ * @details If the target address is the LED mode register (index totalSlots),
+ *          the LED mode is updated accordingly.
+ * @param mb      Pointer to the ModbusInterface_t structure.
+ * @param address 0-based holding register address.
+ * @param value   Value to write.
+ */
+HAL_StatusTypeDef Modbus_WriteHoldingRegister(ModbusInterface_t *mb, uint8_t *data) {
+	uint16_t address = (data[2] << 8) | data[3];
+	uint16_t value = (data[4] << 8) | data[5];
+	if (address > mb->shiftReg.totalSlots && address != 41) {
+		LOG_WARN("Write single holding register ignored: address=%u out of range (max=%u)", address, mb->shiftReg.totalSlots);
+		return HAL_ERROR;
+	}
+	LOG_DEBUG("Write single holding register: address=%u, value=0x%04X", address, value);
+
+	mb->holdingRegisters[address] = value;
+
+	if (address == 41) {
+		mb->ledMode = value;
+		LOG_INFO("LED mode updated through holding register: mode=%u", mb->ledMode);
+	}
+	return sendResponseWrite(mb, data);
+}
+
+HAL_StatusTypeDef Modbus_WriteMultipleHoldingRegisters(ModbusInterface_t *mb, uint8_t *data) {
+	uint16_t address = (data[2] << 8) | data[3];
+	uint16_t count = (data[4] << 8) | data[5];
+	uint8_t byteCount = data[6];
+	if (address >= mb->shiftReg.totalSlots || address + count > mb->shiftReg.totalSlots || count == 0) {
+		LOG_WARN("Write multiple holding registers ignored: startAddress=%u out of range (slots=%u)", address, mb->shiftReg.totalSlots);
+		return HAL_ERROR;
+	}
+	uint8_t *values = (uint8_t *)calloc(byteCount, sizeof(uint8_t));
+	for (uint16_t i = 0; i < byteCount; i++) {
+		values[i] = data[7 + i];
+	}
+	LOG_DEBUG("Write multiple holding registers: startAddress=%u, count=%u", address, count);
+	for (uint16_t i = address; i < address + count; i++) {
+		if (i > mb->shiftReg.totalSlots && i != 41) {
+			LOG_WARN("(Write Multiple) Write single holding register ignored: address=%u out of range (max=%u)", address + i, mb->shiftReg.totalSlots);
+			return HAL_ERROR;
+		}
+		LOG_DEBUG("(Write Multiple) Write single holding register: address=%u, value=0x%04X", address + i, values[i]);
+
+		mb->holdingRegisters[i] = values[i - address];
+
+		if (i == 41) {
+			mb->ledMode = values[i - address];
+			LOG_INFO("LED mode updated through holding register: mode=%u", mb->ledMode);
+		}
+	}
+	LOG_DEBUG("Write multiple holding registers complete: startAddress=%u, count=%u", address, count);
+	return sendResponseWriteMultiple(mb, data);
+}
+
+/**
+ * @brief Writes a value to a single coil and updates the LED indicator.
+ * @details Sets the coil state, updates the corresponding holding register flags
+ *          (NEWOP or TAKEN), and updates the LED color for the slot. If the device
+ *          is not in normal LED mode, resets it to normal mode first.
+ * @param mb      Pointer to the ModbusInterface_t structure.
+ * @param address 0-based coil address.
+ * @param value   Non-zero to set the coil, zero to clear it.
+ */
+HAL_StatusTypeDef Modbus_WriteCoil(ModbusInterface_t *mb, uint8_t *data) {
+	uint16_t address = (data[2] << 8) | data[3];
+	uint8_t value = (data[4] == 0xFF); // Modbus spec: 0xFF00 to set, 0x0000 to reset
+	if (address >= mb->shiftReg.totalSlots) {
+		LOG_WARN("Write single coil ignored: address=%u out of range (slots=%u)", address, mb->shiftReg.totalSlots);
+		return HAL_ERROR;
+	}
+	LOG_DEBUG("Write single coil: address=%u, valueRaw=0x%02X", address, value);
+	mb->coils[address] = value;
+
+	setOperationFlag(mb, address);
+
+	if (mb->ledMode != LED_MODE_NORMAL) {
+		mb->ledMode = LED_MODE_NORMAL;
+		led_updateMode();
+		LOG_INFO("LED mode forced to normal due to coil write");
+	}
+
+	argb_t colorHolder;
+	colorHolder.brightness = LED_BRIGHTNESS_MEDIUM_HIGH;
+	if (mb->holdingRegisters[address] & HOLDINGREG_SLOT_NEWOP_FLAG)
+		colorHolder.color = led_blue;
+	else if (mb->holdingRegisters[address] & HOLDINGREG_SLOT_TAKEN_FLAG)
+		colorHolder.color = led_green;
+	else
+		colorHolder.color = led_black;
+	led_set_color(address, colorHolder);
+	LOG_DEBUG("Write single coil complete: address=%u, coil=%u, holding=0x%04X", address, mb->coils[address], mb->holdingRegisters[address]);
+	return sendResponseWrite(mb, data);
+}
+
+HAL_StatusTypeDef Modbus_WriteMultipleCoils(ModbusInterface_t *mb, uint8_t *data) {
+	uint16_t address = (data[2] << 8) | data[3];
+	uint16_t count = (data[4] << 8) | data[5];
+	uint8_t byteCount = data[6];
+	uint8_t *values = (uint8_t *)calloc(byteCount, sizeof(uint8_t));
+	for (uint16_t i = 0; i < byteCount; i++) {
+		values[i] = data[7 + i];
+	}
+	LOG_DEBUG("Write multiple coils: startAddress=%u, count=%u", address, count);
+	for (uint16_t i = address; i < address + count; i++) {
+		uint8_t coilValue = (values[i / 8] >> (i % 8)) & 0x01;
+		if (i >= mb->shiftReg.totalSlots) {
+			LOG_WARN("(Write Multiple) Write single coil ignored: address=%u out of range (slots=%u)", i, mb->shiftReg.totalSlots);
+			return HAL_ERROR;
+		}
+		LOG_DEBUG("(Write Multiple) Write single coil: address=%u, valueRaw=0x%02X", i, coilValue);
+		mb->coils[i] = coilValue;
+	}
+	LOG_DEBUG("Write multiple coils complete: startAddress=%u, count=%u", address, count);
+	return sendResponseWriteMultiple(mb, data);
+}
+
+/**
+ * @brief Updates all Modbus registers based on current hardware state.
+ * @details Refreshes discrete inputs from slot sensors, updates input registers
+ *          with slot count, free count, and status, and syncs holding registers
+ *          with current slot states and LED mode.
+ * @param mb Pointer to the ModbusInterface_t structure.
+ * @note Call periodically when idle.
+ */
+void updateRegisters(ModbusInterface_t *mb) {
+	for (uint8_t slot = 0; slot < mb->shiftReg.totalSlots; slot++) {
+		mb->discreteInputs[slot] =
+		  ShiftRegister_GetSlotState(&mb->shiftReg, slot) ? 1 : 0;
+	}
+
+	mb->inputRegisters[0] = mb->shiftReg.totalSlots;
+	mb->inputRegisters[1] = ShiftRegister_GetFreeCount(&mb->shiftReg);
+	mb->inputRegisters[2] = mb->statusRegister;
+
+	for (uint8_t slot = 0; slot < mb->shiftReg.totalSlots; slot++) {
+		mb->holdingRegisters[slot] =
+		  ShiftRegister_GetSlotState(&mb->shiftReg, slot) ? 1 : 0;
+	}
+
+	mb->holdingRegisters[41] = mb->ledMode;
 }
 
 /**
@@ -419,211 +459,86 @@ void setOperationFlag(ModbusInterface_t *mb, uint16_t address) {
  *          extracts address, count, and value fields, calls the appropriate
  *          read/write handler, and sends the response.
  * @param mb   Pointer to the ModbusInterface_t structure.
- * @param data Buffer containing at least the first 3 bytes of the packet
- *             (slave ID, function code, length/data byte).
+ * @param data Buffer containing the packet.
  */
 void processReceivedPackage(ModbusInterface_t *mb, uint8_t *data) {
-	uint8_t functionCode = data[1], byteCount;
-	uint8_t requestData[256] = {0};
-	CB_Status_t cbStatus;
-	uint16_t requestLen;
-	uint16_t address;
-	uint16_t count;
-	uint16_t value;
-	uint8_t output[256] = {0};
-	uint16_t registerValues[MODBUS_HOLDING_REGISTER_COUNT] = {0};
+	// TODO: Refactor this function to reduce code duplication and improve clarity. Consider creating helper functions for parsing requests and sending responses.
+	// TODO: Add error handling for invalid packet formats, unsupported function codes, and out-of-range addresses/counts. Ensure that the Modbus exception response is sent in these cases.
+	uint8_t functionCode = data[1];
+
 	LOG_DEBUG("Processing Modbus function: 0x%02X", functionCode);
 	switch (functionCode) {
-		case MODBUS_FUNCTION_READ_COILS:
-			requestLen = 8;
-			cbStatus = cbuf_get(hcbuf_modbus, requestData, requestLen);
-			if (cbStatus != CB_OK) {
-				LOG_WARN("READ_COILS request dequeue failed: %d", cbStatus);
+		case MODBUS_FUNCTION_READ_COILS: // expected values for slots
+			LOG_DEBUG("Function READ_COILS detected, preparing to read request data");
+			if (Modbus_ReadCoils(mb, data) != HAL_OK) {
+				LOG_WARN("READ_COILS handler failed");
 				return;
-			}
-			if (!Modbus_IsValidCrc(requestData, requestLen)) {
-				LOG_WARN("READ_COILS request CRC invalid");
-				return;
-			}
-			address = (requestData[2] << 8) | requestData[3];
-			count = (requestData[4] << 8) | requestData[5];
-			LOG_DEBUG("Function READ_COILS: address=%u, count=%u", address, count);
-			byteCount = Modbus_ReadCoils(mb, address, count, output);
-			if (requestData[0] != 0) {
-				sendResponseRead(mb, requestData, byteCount, output);
 			}
 			break;
-		case MODBUS_FUNCTION_READ_DISCRETE_INPUTS:
-			requestLen = 8;
-			cbStatus = cbuf_get(hcbuf_modbus, requestData, requestLen);
-			if (cbStatus != CB_OK) {
-				LOG_WARN("READ_DISCRETE_INPUTS request dequeue failed: %d", cbStatus);
+		case MODBUS_FUNCTION_READ_DISCRETE_INPUTS: // actual slot states
+			LOG_DEBUG("Function READ_DISCRETE_INPUTS detected, preparing to read request data");
+			if (Modbus_ReadDiscreteInputs(mb, data) != HAL_OK) {
+				LOG_WARN("READ_DISCRETE_INPUTS handler failed");
 				return;
-			}
-			if (!Modbus_IsValidCrc(requestData, requestLen)) {
-				LOG_WARN("READ_DISCRETE_INPUTS request CRC invalid");
-				return;
-			}
-			address = (requestData[2] << 8) | requestData[3];
-			count = (requestData[4] << 8) | requestData[5];
-			LOG_DEBUG("Function READ_DISCRETE_INPUTS: address=%u, count=%u", address, count);
-			byteCount = Modbus_ReadDiscreteInputs(mb, address, count, output);
-			if (requestData[0] != 0) {
-				sendResponseRead(mb, requestData, byteCount, output);
 			}
 			break;
-		case MODBUS_FUNCTION_READ_HOLDING_REGISTERS:
-			requestLen = 8;
-			cbStatus = cbuf_get(hcbuf_modbus, requestData, requestLen);
-			if (cbStatus != CB_OK) {
-				LOG_WARN("READ_HOLDING_REGISTERS request dequeue failed: %d", cbStatus);
+		case MODBUS_FUNCTION_READ_HOLDING_REGISTERS: // slot status + LED mode
+			LOG_DEBUG("Function READ_HOLDING_REGISTERS detected, preparing to read request data");
+			if (Modbus_ReadHoldingRegisters(mb, data) != HAL_OK) {
+				LOG_WARN("READ_HOLDING_REGISTERS handler failed");
 				return;
-			}
-			if (!Modbus_IsValidCrc(requestData, requestLen)) {
-				LOG_WARN("READ_HOLDING_REGISTERS request CRC invalid");
-				return;
-			}
-			address = (requestData[2] << 8) | requestData[3];
-			count = (requestData[4] << 8) | requestData[5];
-			LOG_DEBUG("Function READ_HOLDING_REGISTERS: address=%u, count=%u", address, count);
-			byteCount = Modbus_ReadHoldingRegisters(mb, address, count, (uint8_t *)output);
-			if (requestData[0] != 0) {
-				sendResponseRead(mb, requestData, byteCount, (uint8_t *)output);
 			}
 			break;
 		case MODBUS_FUNCTION_WRITE_SINGLE_COIL:
-			requestLen = 8;
-			cbStatus = cbuf_get(hcbuf_modbus, requestData, requestLen);
-			if (cbStatus != CB_OK) {
-				LOG_WARN("WRITE_SINGLE_COIL request dequeue failed: %d", cbStatus);
+			LOG_DEBUG("Function WRITE_SINGLE_COIL detected, preparing to read request data");
+			if (Modbus_WriteCoil(mb, data) != HAL_OK) {
+				LOG_WARN("WRITE_SINGLE_COIL handler failed");
 				return;
-			}
-			if (!Modbus_IsValidCrc(requestData, requestLen)) {
-				LOG_WARN("WRITE_SINGLE_COIL request CRC invalid");
-				return;
-			}
-			address = (requestData[2] << 8) | requestData[3];
-			value = (requestData[4] << 8) | requestData[5];
-			LOG_DEBUG("Function WRITE_SINGLE_COIL: address=%u, value=0x%04X", address, value);
-			Modbus_WriteCoil(mb, address, (value == 0xFF00U) ? 1U : 0U);
-			if (requestData[0] != 0) {
-				sendResponseWrite(mb, requestData);
 			}
 			break;
 		case MODBUS_FUNCTION_WRITE_SINGLE_HOLDING_REGISTER:
-			requestLen = 8;
-			cbStatus = cbuf_get(hcbuf_modbus, requestData, requestLen);
-			if (cbStatus != CB_OK) {
-				LOG_WARN("WRITE_SINGLE_HOLDING_REGISTER request dequeue failed: %d", cbStatus);
+			LOG_DEBUG("Function WRITE_SINGLE_HOLDING_REGISTER detected, preparing to read request data");
+			if (Modbus_WriteHoldingRegister(mb, data) != HAL_OK) {
+				LOG_WARN("WRITE_SINGLE_HOLDING_REGISTER handler failed");
 				return;
-			}
-			if (!Modbus_IsValidCrc(requestData, requestLen)) {
-				LOG_WARN("WRITE_SINGLE_HOLDING_REGISTER request CRC invalid");
-				return;
-			}
-			address = (requestData[2] << 8) | requestData[3];
-			value = (requestData[4] << 8) | requestData[5];
-			LOG_DEBUG("Function WRITE_SINGLE_HOLDING_REGISTER: address=%u, value=0x%04X", address, value);
-			Modbus_WriteHoldingRegister(mb, address, value);
-			if (requestData[0] != 0) {
-				sendResponseWrite(mb, requestData);
 			}
 			break;
 		case MODBUS_FUNCTION_WRITE_MULTIPLE_HOLDING_REGISTERS:
-			requestLen = (uint16_t)data[6] + 9U;
-			if (requestLen > sizeof(requestData)) {
-				LOG_WARN("WRITE_MULTIPLE_HOLDING_REGISTERS request too long: %u", requestLen);
+			LOG_DEBUG("Function WRITE_MULTIPLE_HOLDING_REGISTERS detected, preparing to read request data");
+			if (Modbus_WriteMultipleHoldingRegisters(mb, data) != HAL_OK) {
+				LOG_WARN("WRITE_MULTIPLE_HOLDING_REGISTERS handler failed");
 				return;
-			}
-			cbStatus = cbuf_get(hcbuf_modbus, requestData, requestLen);
-			if (cbStatus != CB_OK) {
-				LOG_WARN("WRITE_MULTIPLE_HOLDING_REGISTERS request dequeue failed: %d", cbStatus);
-				return;
-			}
-			if (!Modbus_IsValidCrc(requestData, requestLen)) {
-				LOG_WARN("WRITE_MULTIPLE_HOLDING_REGISTERS request CRC invalid");
-				return;
-			}
-			address = (requestData[2] << 8) | requestData[3];
-			count = (requestData[4] << 8) | requestData[5];
-			if (requestData[6] != (uint8_t)(count * 2U) || count > MODBUS_HOLDING_REGISTER_COUNT) {
-				LOG_WARN("WRITE_MULTIPLE_HOLDING_REGISTERS invalid payload: count=%u byteCount=%u", count, requestData[6]);
-				return;
-			}
-			for (uint16_t i = 0; i < count; i++) {
-				registerValues[i] = (uint16_t)((requestData[7U + (2U * i)] << 8) | requestData[8U + (2U * i)]);
-			}
-			LOG_DEBUG("Function WRITE_MULTIPLE_HOLDING_REGISTERS: address=%u, count=%u", address, count);
-			Modbus_WriteMultipleHoldingRegisters(mb, address, count, registerValues);
-			if (requestData[0] != 0) {
-				sendResponseWrite(mb, requestData);
 			}
 			break;
 		case MODBUS_FUNCTION_WRITE_MULTIPLE_COILS:
-			requestLen = (uint16_t)data[6] + 9U;
-			if (requestLen > sizeof(requestData)) {
-				LOG_WARN("WRITE_MULTIPLE_COILS request too long: %u", requestLen);
+			LOG_DEBUG("Function WRITE_MULTIPLE_COILS detected, preparing to read request data");
+			if (Modbus_WriteMultipleCoils(mb, data) != HAL_OK) {
+				LOG_WARN("WRITE_MULTIPLE_COILS handler failed");
 				return;
-			}
-			cbStatus = cbuf_get(hcbuf_modbus, requestData, requestLen);
-			if (cbStatus != CB_OK) {
-				LOG_WARN("WRITE_MULTIPLE_COILS request dequeue failed: %d", cbStatus);
-				return;
-			}
-			if (!Modbus_IsValidCrc(requestData, requestLen)) {
-				LOG_WARN("WRITE_MULTIPLE_COILS request CRC invalid");
-				return;
-			}
-			address = (requestData[2] << 8) | requestData[3];
-			count = (requestData[4] << 8) | requestData[5];
-			LOG_DEBUG("Function WRITE_MULTIPLE_COILS: address=%u, count=%u", address, count);
-			for (uint16_t i = 0; i < count; i++) {
-				uint8_t packedByte = requestData[7U + (i / 8U)];
-				uint8_t coilValue = (packedByte >> (i % 8U)) & 0x01U;
-				Modbus_WriteCoil(mb, address + i, coilValue);
-			}
-			if (requestData[0] != 0) {
-				sendResponseWrite(mb, requestData);
 			}
 			break;
-		default: // MODBUS_FUNCTION_READ_INPUT_REGISTERS
-			requestLen = 8;
-			cbStatus = cbuf_get(hcbuf_modbus, requestData, requestLen);
-			if (cbStatus != CB_OK) {
-				LOG_WARN("READ_INPUT_REGISTERS request dequeue failed: %d", cbStatus);
+		default:
+			LOG_DEBUG("Function READ_INPUT_REGISTERS detected, preparing to read request data");
+			if (Modbus_ReadInputRegisters(mb, data) != HAL_OK) {
+				LOG_WARN("READ_INPUT_REGISTERS handler failed");
 				return;
-			}
-			if (!Modbus_IsValidCrc(requestData, requestLen)) {
-				LOG_WARN("READ_INPUT_REGISTERS request CRC invalid");
-				return;
-			}
-			address = (requestData[2] << 8) | requestData[3];
-			count = (requestData[4] << 8) | requestData[5];
-			LOG_DEBUG("Function READ_INPUT_REGISTERS: address=%u, count=%u", address, count);
-			byteCount = Modbus_ReadInputRegisters(mb, address, count, (uint8_t *)output);
-			LOG_DEBUG("Input register values read: %u bytes", byteCount);
-			for (uint8_t i = 0; i < byteCount; i++) {
-				LOG_DEBUG("Input register %u: 0x%02X", address + i, output[i]);
-			}
-			if (requestData[0] != 0) {
-				sendResponseRead(mb, requestData, byteCount, (uint8_t *)output);
 			}
 			break;
 	}
 }
 
-static uint8_t Modbus_IsValidCrc(const uint8_t *frame, uint16_t frameLen) {
+uint8_t checkCrc(const uint8_t *frame, uint16_t length) {
 	uint16_t frameCrc;
 	uint16_t calculatedCrc;
 
-	if (frame == NULL || frameLen < 4U) {
-		return 0U;
+	if (frame == NULL || length < 4) {
+		return 0; // Invalid frame
 	}
 
-	frameCrc = (uint16_t)(frame[frameLen - 2U]) | ((uint16_t)frame[frameLen - 1U] << 8);
-	calculatedCrc = crc16((uint8_t *)frame, (uint16_t)(frameLen - 2U));
+	frameCrc = (uint16_t)(frame[length - 2]) | ((uint16_t)frame[length - 1] << 8);
+	calculatedCrc = crc16((uint8_t *)frame, (uint16_t)(length - 2));
 
-	return (frameCrc == calculatedCrc) ? 1U : 0U;
+	return (frameCrc == calculatedCrc) ? 1 : 0;
 }
 
 /**
@@ -635,18 +550,15 @@ static uint8_t Modbus_IsValidCrc(const uint8_t *frame, uint16_t frameLen) {
  * @param byteCount    Number of data bytes in @p responseData.
  * @param responseData Pointer to the data bytes to include in the response.
  */
-void sendResponseRead(ModbusInterface_t *mb, uint8_t *requestData, uint8_t byteCount, uint8_t *responseData) {
+HAL_StatusTypeDef sendResponseRead(ModbusInterface_t *mb, uint8_t *requestData, uint8_t byteCount, uint8_t *responseData) {
 	uint8_t response[256] = {0};
 	response[0] = mb->slaveId;
 	response[1] = requestData[1];
 	response[2] = byteCount;
 	memcpy(&response[3], responseData, byteCount);
-	uint16_t crc = crc16(response, 3 + byteCount);
-	response[3 + byteCount] = crc & 0xFF;
-	response[4 + byteCount] = (crc >> 8) & 0xFF;
-	LOG_DEBUG("Sending read response: slaveId=%u, function=0x%02X, byteCount=%u, crc=0x%04X", mb->slaveId, requestData[1], byteCount, crc);
-
-	Modbus_StartTxDma(response, (uint16_t)(5U + byteCount));
+	appendCrc(response, (uint16_t)(3 + byteCount));
+	LOG_DEBUG("Sending read response: slaveId=%u, function=0x%02X, byteCount=%u, crc=0x%04X", mb->slaveId, requestData[1], byteCount, response[byteCount - 2] | (response[byteCount - 1] << 8));
+	return startTx(response, (uint16_t)(5 + byteCount), 1000);
 }
 
 /**
@@ -657,50 +569,61 @@ void sendResponseRead(ModbusInterface_t *mb, uint8_t *requestData, uint8_t byteC
  * @param mb          Pointer to the ModbusInterface_t structure.
  * @param requestData Original request buffer to echo back.
  */
-void sendResponseWrite(ModbusInterface_t *mb, uint8_t *requestData) {
+HAL_StatusTypeDef sendResponseWrite(ModbusInterface_t *mb, uint8_t *requestData) {
+	uint8_t response[256] = {0};
+	response[0] = mb->slaveId;
+	response[1] = requestData[1];
+	response[2] = 2;
+	response[3] = requestData[4];
+	response[4] = requestData[5];
+	appendCrc(response, 7);
+	LOG_DEBUG("Sending write response: slaveId=%u, function=0x%02X, address=%u, crc=0x%04X", mb->slaveId, requestData[1], (uint16_t)((requestData[2] << 8) | requestData[3]), response[5] | (response[6] << 8));
+
+	return startTx(response, 7, 1000);
+}
+
+HAL_StatusTypeDef sendResponseWriteMultiple(ModbusInterface_t *mb, uint8_t *requestData) {
 	uint8_t response[256] = {0};
 	response[0] = mb->slaveId;
 	response[1] = requestData[1];
 	memcpy(&response[2], &requestData[2], 4);
-	uint16_t crc = crc16(response, 6);
-	response[6] = crc & 0xFF;
-	response[7] = (crc >> 8) & 0xFF;
-	LOG_DEBUG("Sending write response: slaveId=%u, function=0x%02X, address=%u, crc=0x%04X", mb->slaveId, requestData[1], (uint16_t)((requestData[2] << 8) | requestData[3]), crc);
+	appendCrc(response, 8);
+	LOG_DEBUG("Sending write multiple response: slaveId=%u, function=0x%02X, address=%u, count=%u, crc=0x%04X",
+	          mb->slaveId, requestData[1], (uint16_t)((requestData[2] << 8) | requestData[3]), (uint16_t)((requestData[4] << 8) | requestData[5]), response[6] | (response[7] << 8));
 
-	Modbus_StartTxDma(response, 8);
+	return startTx(response, 8, 1000);
 }
 
-static void Modbus_StartTxDma(const uint8_t *data, uint16_t len) {
-	if (len == 0 || len > sizeof(MODBUS_DMA_TXData)) {
-		LOG_ERROR("Modbus TX DMA rejected: invalid length=%u", len);
-		return;
-	}
-
-	if (MODBUS_DMA_TxBusy != 0) {
-		LOG_WARN("Modbus TX DMA busy, dropping frame len=%u", len);
-		return;
-	}
-
-	memcpy(MODBUS_DMA_TXData, data, len);
-	HAL_GPIO_WritePin(USART1_DE_GPIO_Port, USART1_DE_Pin, GPIO_PIN_SET);
-	MODBUS_DMA_TxBusy = 1;
-	if (HAL_UART_Transmit_DMA(&huart1, MODBUS_DMA_TXData, len) != HAL_OK) {
-		HAL_GPIO_WritePin(USART1_DE_GPIO_Port, USART1_DE_Pin, GPIO_PIN_RESET);
-		MODBUS_DMA_TxBusy = 0;
-		LOG_ERROR("Failed to start UART TX DMA, state=%u error=0x%08lX",
-		          huart1.gState, (unsigned long)huart1.ErrorCode);
-		return;
-	}
+HAL_StatusTypeDef sendExceptionResponse(ModbusInterface_t *mb, uint8_t functionCode, uint8_t exceptionCode) {
+	uint8_t response[256] = {0};
+	response[0] = mb->slaveId;
+	response[1] = functionCode | 0x80; // Set MSB to indicate exception
+	response[2] = exceptionCode;
+	appendCrc(response, 5);
+	LOG_DEBUG("Sending exception response: slaveId=%u, function=0x%02X, exceptionCode=0x%02X, crc=0x%04X", mb->slaveId, functionCode, exceptionCode, response[3] | (response[4] << 8));
+	return startTx(response, 5, 1000);
 }
 
-void Modbus_OnTxComplete(void) {
-	MODBUS_DMA_TxBusy = 0;
-	HAL_GPIO_WritePin(USART1_DE_GPIO_Port, USART1_DE_Pin, GPIO_PIN_RESET);
-	LOG_DEBUG("UART1 TX complete, DE pin reset");
+HAL_StatusTypeDef startTx(const uint8_t *data, uint16_t len, uint32_t timeout) {
+	HAL_StatusTypeDef status;
+	if (len == 0 || len > 256) {
+		LOG_ERROR("Modbus TX rejected: invalid length=%u", len);
+		return HAL_ERROR;
+	}
+	USART1_DE_GPIO_Port->BSRR = USART1_DE_Pin;
+	if ((status = HAL_UART_Transmit(&huart1, data, len, timeout)) != HAL_OK) {
+		USART1_DE_GPIO_Port->BRR = USART1_DE_Pin;
+		LOG_ERROR("Failed to start UART TX, state=%u error=0x%08lX",
+		          huart1.gState, (unsigned long)status);
+		return status;
+	}
+	USART1_DE_GPIO_Port->BRR = USART1_DE_Pin;
+	LOG_DEBUG("UART TX done: length=%u", len);
+	return HAL_OK;
 }
 
-void Modbus_OnTxError(uint32_t errorCode) {
-	MODBUS_DMA_TxBusy = 0;
-	HAL_GPIO_WritePin(USART1_DE_GPIO_Port, USART1_DE_Pin, GPIO_PIN_RESET);
-	LOG_ERROR("UART1 TX error: 0x%08lX", (unsigned long)errorCode);
+void appendCrc(uint8_t *frame, uint16_t length) {
+	uint16_t crc = crc16(frame, (uint16_t)(length - 2));
+	frame[length - 2] = crc & 0xFF;
+	frame[length - 1] = (crc >> 8) & 0xFF;
 }
