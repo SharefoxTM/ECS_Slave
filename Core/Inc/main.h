@@ -71,8 +71,6 @@ void delay_250ns(uint32_t cycles);
 #define DIP_3_GPIO_Port GPIOA
 #define DIP_4_Pin GPIO_PIN_7
 #define DIP_4_GPIO_Port GPIOA
-#define USART1_DE_Pin GPIO_PIN_12
-#define USART1_DE_GPIO_Port GPIOA
 #define DIP_5_Pin GPIO_PIN_0
 #define DIP_5_GPIO_Port GPIOB
 #define DIP_6_Pin GPIO_PIN_1
@@ -81,6 +79,8 @@ void delay_250ns(uint32_t cycles);
 #define DIP_7_GPIO_Port GPIOB
 #define Button_Pin GPIO_PIN_10
 #define Button_GPIO_Port GPIOB
+#define USART1_DE_Pin GPIO_PIN_12
+#define USART1_DE_GPIO_Port GPIOA
 #define SR_SDI_Pin GPIO_PIN_4
 #define SR_SDI_GPIO_Port GPIOB
 #define SR_CLK_Pin GPIO_PIN_5

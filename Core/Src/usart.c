@@ -19,7 +19,6 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "usart.h"
-#include "stm32f0xx_hal_uart_ex.h"
 
 /* USER CODE BEGIN 0 */
 #include "Utilities/log.h"
@@ -43,7 +42,7 @@ void MX_USART1_UART_Init(void) {
 
 	/* USER CODE END USART1_Init 1 */
 	huart1.Instance = USART1;
-	huart1.Init.BaudRate = MODBUS_BAUDRATE;
+	huart1.Init.BaudRate = 9600;
 	huart1.Init.WordLength = UART_WORDLENGTH_8B;
 	huart1.Init.StopBits = UART_STOPBITS_1;
 	huart1.Init.Parity = UART_PARITY_NONE;
@@ -52,7 +51,7 @@ void MX_USART1_UART_Init(void) {
 	huart1.Init.OverSampling = UART_OVERSAMPLING_16;
 	huart1.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
 	huart1.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
-	if (HAL_RS485Ex_Init(&huart1, UART_DE_POLARITY_HIGH, 0, 0) != HAL_OK) {
+	if (HAL_UART_Init(&huart1) != HAL_OK) {
 		Error_Handler();
 	}
 	/* USER CODE BEGIN USART1_Init 2 */
@@ -75,7 +74,7 @@ void MX_USART2_UART_Init(void) {
 	huart2.Init.WordLength = UART_WORDLENGTH_8B;
 	huart2.Init.StopBits = UART_STOPBITS_1;
 	huart2.Init.Parity = UART_PARITY_NONE;
-	huart2.Init.Mode = UART_MODE_TX_RX;
+	huart2.Init.Mode = UART_MODE_TX;
 	huart2.Init.HwFlowCtl = UART_HWCONTROL_NONE;
 	huart2.Init.OverSampling = UART_OVERSAMPLING_16;
 	huart2.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
@@ -102,9 +101,8 @@ void HAL_UART_MspInit(UART_HandleTypeDef *uartHandle) {
 		/**USART1 GPIO Configuration
 		PA9     ------> USART1_TX
 		PA10     ------> USART1_RX
-		PA12     ------> USART1_DE
 		*/
-		GPIO_InitStruct.Pin = GPIO_PIN_9 | GPIO_PIN_10 | GPIO_PIN_12;
+		GPIO_InitStruct.Pin = GPIO_PIN_9 | GPIO_PIN_10;
 		GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
 		GPIO_InitStruct.Pull = GPIO_NOPULL;
 		GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
@@ -184,9 +182,8 @@ void HAL_UART_MspDeInit(UART_HandleTypeDef *uartHandle) {
 		/**USART1 GPIO Configuration
 		PA9     ------> USART1_TX
 		PA10     ------> USART1_RX
-		PA12     ------> USART1_DE
 		*/
-		HAL_GPIO_DeInit(GPIOA, GPIO_PIN_9 | GPIO_PIN_10 | GPIO_PIN_12);
+		HAL_GPIO_DeInit(GPIOA, GPIO_PIN_9 | GPIO_PIN_10);
 
 		/* USART1 DMA DeInit */
 		HAL_DMA_DeInit(uartHandle->hdmarx);
@@ -253,7 +250,7 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t size) {
 		return;
 	}
 
-	if (size < 2) {
+	if (size < 3) {
 		Modbus_RestartRxDma();
 		return;
 	}
@@ -269,7 +266,7 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t size) {
 		Modbus_RestartRxDma();
 		return;
 	}
-
+	LOG_DEBUG("Received valid Modbus packet: slaveId=%u, function=0x%02X, size=%u", MODBUS_DMA_RXData[0], MODBUS_DMA_RXData[1], size);
 	CB_Status_t err = cbuf_put(hcbuf_modbus, MODBUS_DMA_RXData, size);
 	if (err != CB_OK) {
 		LOG_ERROR("Circular buffer put error: %d", err);
@@ -291,8 +288,22 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart) {
 		return;
 	}
 
-	LOG_ERROR("UART1 error callback: 0x%08lX", (unsigned long)huart->ErrorCode);
-	Modbus_OnTxError(huart->ErrorCode);
+	const uint32_t err = huart->ErrorCode;
+	const uint32_t rxErrMask = HAL_UART_ERROR_PE | HAL_UART_ERROR_NE |
+	                           HAL_UART_ERROR_FE | HAL_UART_ERROR_ORE |
+	                           HAL_UART_ERROR_RTO;
+
+	if ((err & rxErrMask) != 0U) {
+		LOG_WARN("UART1 RX line error callback: 0x%08lX", (unsigned long)err);
+	}
+
+	if ((err & HAL_UART_ERROR_DMA) != 0U ||
+	    huart->gState == HAL_UART_STATE_BUSY_TX ||
+	    huart->gState == HAL_UART_STATE_BUSY_TX_RX) {
+		LOG_ERROR("UART1 TX path error callback: 0x%08lX", (unsigned long)err);
+		Modbus_OnTxError(err);
+	}
+
 	Modbus_RestartRxDma();
 }
 /* USER CODE END 1 */

@@ -5,7 +5,6 @@
 #include <stdint.h>
 
 // Modbus configuration
-#define MODBUS_BAUDRATE 9600
 #define MAX_SHIFT_REGISTERS 5 // Maximum 40 slots (5 x 8-bit)
 #define BITS_PER_SR 8
 #define MAX_SLOTS (MAX_SHIFT_REGISTERS * BITS_PER_SR) // 40 maximum
@@ -29,8 +28,8 @@
 #define LED_MODE_KNIGHT 0x0004
 
 typedef struct {
-  uint8_t slaveId;  // Modbus slave ID (1-247)
-  uint8_t numSlots; // Detected number of slots (8-40, in multiples of 8)
+	uint8_t slaveId;  // Modbus slave ID (1-247)
+	uint8_t numSlots; // Detected number of slots (8-40, in multiples of 8)
 } ModbusConfig_t;
 
 // Function prototypes

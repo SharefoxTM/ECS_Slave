@@ -1,4 +1,5 @@
 #include "modbus/modbus_interface.h"
+#include "Utilities/log.h"
 #include "led/led_interface.h"
 #include "modbus/modbus_crc.h"
 #include "shift_register.h"
@@ -114,7 +115,6 @@ ModbusInterface_t Modbus_Init(uint8_t slaveId) {
  * @note Call periodically when idle.
  */
 void Modbus_UpdateRegisters(ModbusInterface_t *mb) {
-	LOG_VERBOSE("Updating Modbus registers: slots=%u, ledMode=%u", mb->shiftReg.totalSlots, mb->ledMode);
 	for (uint8_t slot = 0; slot < mb->shiftReg.totalSlots; slot++) {
 		mb->discreteInputs[slot] =
 		  ShiftRegister_GetSlotState(&mb->shiftReg, slot) ? 1 : 0;
@@ -130,7 +130,6 @@ void Modbus_UpdateRegisters(ModbusInterface_t *mb) {
 	}
 
 	mb->holdingRegisters[41] = mb->ledMode;
-	LOG_VERBOSE("Registers updated: freeCount=%u, status=0x%04X", mb->inputRegisters[1], mb->inputRegisters[2]);
 }
 
 /**
@@ -140,12 +139,10 @@ void Modbus_UpdateRegisters(ModbusInterface_t *mb) {
  * @param mb Pointer to the ModbusInterface_t structure.
  */
 void Modbus_Update(ModbusInterface_t *mb) {
-	LOG_VERBOSE("Modbus update cycle start");
 	mb->statusRegister = STATUS_BIT_SYSTEM_READY | STATUS_BIT_SCANNING;
 	ShiftRegister_ReadSensors(&mb->shiftReg);
 	Modbus_UpdateRegisters(mb);
 	mb->statusRegister &= ~STATUS_BIT_SCANNING;
-	LOG_VERBOSE("Modbus update cycle complete: status=0x%04X", mb->statusRegister);
 }
 
 /**
@@ -157,7 +154,6 @@ void Modbus_Update(ModbusInterface_t *mb) {
  */
 void Modbus_ProcessReceivedData(ModbusInterface_t *mb) {
 	uint8_t data[256];
-	LOG_VERBOSE("Processing Modbus RX buffer");
 	while (!cbuf_empty(hcbuf_modbus)) {
 		for (int i = 0; i < 3; i++) {
 			CB_Status_t err = cbuf_peek(hcbuf_modbus, &data[i], i);
@@ -185,7 +181,6 @@ void Modbus_ProcessReceivedData(ModbusInterface_t *mb) {
 uint8_t Modbus_ReadCoils(ModbusInterface_t *mb, uint16_t address, uint16_t count, uint8_t *output) {
 	uint8_t byteCount = 0;
 	LOG_DEBUG("Read coils request: startAddress=%u, count=%u", address, count);
-	address--; // Modbus addresses are 1-based, convert to 0-based index
 	for (uint16_t i = address; i < mb->shiftReg.totalSlots && i < address + count; i++) {
 		output[byteCount] |= mb->coils[i] ? (1 << (i - address)) : 0;
 		if ((i - address) == 7) {
@@ -256,7 +251,7 @@ uint8_t Modbus_ReadDiscreteInputs(ModbusInterface_t *mb, uint16_t address, uint1
 	}
 	LOG_DEBUG("Read discrete inputs request: startAddress=%u, count=%u", address, count);
 	for (uint8_t i = 0; i < count; i++) {
-		output[i] = mb->discreteInputs[address + i];
+		output[i / 8] |= mb->discreteInputs[address + i] << (i % 8);
 	}
 	LOG_DEBUG("Read discrete inputs response prepared: count=%u", count);
 	return count;
@@ -367,7 +362,7 @@ void Modbus_WriteMultipleHoldingRegisters(ModbusInterface_t *mb, uint16_t addres
  * @return 0 if the function code is supported, 1 if it is unsupported.
  */
 uint8_t Modbus_ValidateCode(uint8_t functionCode) {
-	LOG_VERBOSE("Validating Modbus function code: 0x%02X", functionCode);
+	LOG_DEBUG("Validating Modbus function code: 0x%02X", functionCode);
 	switch (functionCode) {
 		case MODBUS_FUNCTION_READ_COILS:                       // Read Coils
 		case MODBUS_FUNCTION_READ_DISCRETE_INPUTS:             // Read Discrete Inputs

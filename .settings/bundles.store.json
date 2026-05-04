@@ -27,6 +27,14 @@
     {
       "name": "st-arm-clang-hybrid-19_1_6-description",
       "version": "0.0.6+st.1"
+    },
+    {
+      "name": "programmer",
+      "version": "2.22.0+st.1"
+    },
+    {
+      "name": "stlink-gdbserver",
+      "version": "7.13.0+st.3"
     }
   ]
 }
