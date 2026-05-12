@@ -556,8 +556,8 @@ HAL_StatusTypeDef sendResponseRead(ModbusInterface_t *mb, uint8_t *requestData, 
 	response[1] = requestData[1];
 	response[2] = byteCount;
 	memcpy(&response[3], responseData, byteCount);
-	appendCrc(response, (uint16_t)(3 + byteCount));
-	LOG_DEBUG("Sending read response: slaveId=%u, function=0x%02X, byteCount=%u, crc=0x%04X", mb->slaveId, requestData[1], byteCount, response[byteCount - 2] | (response[byteCount - 1] << 8));
+	appendCrc(response, (uint16_t)(5 + byteCount));
+	LOG_DEBUG("Sending read response: slaveId=%u, function=0x%02X, byteCount=%u, crc=0x%04X", mb->slaveId, requestData[1], byteCount, response[5 + byteCount - 2] | (response[5 + byteCount - 1] << 8));
 	return startTx(response, (uint16_t)(5 + byteCount), 1000);
 }
 

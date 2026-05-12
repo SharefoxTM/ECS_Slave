@@ -48,8 +48,7 @@ void MX_USART1_UART_Init(void) {
 	huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
 	huart1.Init.OverSampling = UART_OVERSAMPLING_16;
 	huart1.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
-	huart1.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_DMADISABLEONERROR_INIT;
-	huart1.AdvancedInit.DMADisableonRxError = UART_ADVFEATURE_DMA_DISABLEONRXERROR;
+	huart1.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
 	if (HAL_UART_Init(&huart1) != HAL_OK) {
 		Error_Handler();
 	}
@@ -69,7 +68,7 @@ void MX_USART2_UART_Init(void) {
 
 	/* USER CODE END USART2_Init 1 */
 	huart2.Instance = USART2;
-	huart2.Init.BaudRate = 9600;
+	huart2.Init.BaudRate = 115200;
 	huart2.Init.WordLength = UART_WORDLENGTH_8B;
 	huart2.Init.StopBits = UART_STOPBITS_1;
 	huart2.Init.Parity = UART_PARITY_NONE;
@@ -78,7 +77,7 @@ void MX_USART2_UART_Init(void) {
 	huart2.Init.OverSampling = UART_OVERSAMPLING_16;
 	huart2.Init.OneBitSampling = UART_ONE_BIT_SAMPLE_DISABLE;
 	huart2.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
-	if (HAL_HalfDuplex_Init(&huart2) != HAL_OK) {
+	if (HAL_UART_Init(&huart2) != HAL_OK) {
 		Error_Handler();
 	}
 	/* USER CODE BEGIN USART2_Init 2 */
@@ -124,15 +123,24 @@ void HAL_UART_MspInit(UART_HandleTypeDef *uartHandle) {
 		__HAL_RCC_GPIOA_CLK_ENABLE();
 		/**USART2 GPIO Configuration
 		PA2     ------> USART2_TX
+		PA15     ------> USART2_RX
 		*/
 		GPIO_InitStruct.Pin = GPIO_PIN_2;
-		GPIO_InitStruct.Mode = GPIO_MODE_AF_OD;
+		GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+		GPIO_InitStruct.Pull = GPIO_NOPULL;
+		GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+		GPIO_InitStruct.Alternate = GPIO_AF1_USART2;
+		HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+		GPIO_InitStruct.Pin = GPIO_PIN_15;
+		GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
 		GPIO_InitStruct.Pull = GPIO_PULLUP;
 		GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
 		GPIO_InitStruct.Alternate = GPIO_AF1_USART2;
 		HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
 		/* USER CODE BEGIN USART2_MspInit 1 */
+		HAL_GPIO_DeInit(GPIOA, GPIO_PIN_15); // Disable RX pin to prevent noise when not used
 
 		/* USER CODE END USART2_MspInit 1 */
 	}
@@ -167,8 +175,9 @@ void HAL_UART_MspDeInit(UART_HandleTypeDef *uartHandle) {
 
 		/**USART2 GPIO Configuration
 		PA2     ------> USART2_TX
+		PA15     ------> USART2_RX
 		*/
-		HAL_GPIO_DeInit(GPIOA, GPIO_PIN_2);
+		HAL_GPIO_DeInit(GPIOA, GPIO_PIN_2 | GPIO_PIN_15);
 
 		/* USER CODE BEGIN USART2_MspDeInit 1 */
 
@@ -202,10 +211,9 @@ static void Modbus_RestartRxIT(void) {
 
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t size) {
 	if (huart->Instance != USART1) {
+		LOG_DEBUG("UART receive event for non-Modbus UART, ignoring");
 		return;
 	}
-
-	LOG_DEBUG("UART receive event: size=%u type=%u", size, HAL_UARTEx_GetRxEventType(huart));
 
 	if (hmb == NULL) {
 		LOG_ERROR("Modbus context not initialized in UART Rx callback");
@@ -219,7 +227,6 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t size) {
 	}
 
 	if (MODBUS_RXData[0] != hmb->slaveId && MODBUS_RXData[0] != 0) {
-		LOG_DEBUG("Received packet for different slave ID: %u; expected %u or broadcast (0)", MODBUS_RXData[0], hmb->slaveId);
 		Modbus_RestartRxIT();
 		return;
 	}
@@ -233,5 +240,14 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t size) {
 	Modbus_ProcessReceivedData(hmb, MODBUS_RXData, size);
 
 	Modbus_RestartRxIT();
+}
+
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart) {
+	LOG_DEBUG("UART error callback: error=0x%08lX", (unsigned long)huart->ErrorCode);
+	if (huart->Instance == USART1) {
+		if (HAL_UARTEx_ReceiveToIdle_IT(&huart1, MODBUS_RXData, sizeof(MODBUS_RXData)) != HAL_OK) {
+			LOG_ERROR("Failed to restart UART ReceiveToIdle IT after error");
+		}
+	}
 }
 /* USER CODE END 1 */
