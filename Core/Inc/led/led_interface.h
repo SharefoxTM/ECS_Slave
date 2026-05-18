@@ -22,19 +22,20 @@ typedef struct {
 	uint8_t b;
 } rgb_t;
 
-extern rgb_t led_red;
-extern rgb_t led_green;
-extern rgb_t led_blue;
-extern rgb_t led_white;
-extern rgb_t led_yellow;
-extern rgb_t led_cyan;
-extern rgb_t led_magenta;
-extern rgb_t led_black;
+extern const rgb_t led_red;
+extern const rgb_t led_green;
+extern const rgb_t led_blue;
+extern const rgb_t led_white;
+extern const rgb_t led_yellow;
+extern const rgb_t led_cyan;
+extern const rgb_t led_magenta;
+extern const rgb_t led_black;
 
 typedef enum led_brightness {
 	LED_BRIGHTNESS_LOW,
-	LED_BRIGHTNESS_MEDIUM_LOW,
 	LED_BRIGHTNESS_MEDIUM_HIGH,
+	LED_BRIGHTNESS_MEDIUM,
+	LED_BRIGHTNESS_MEDIUM_LOW,
 	LED_BRIGHTNESS_HIGH
 } led_brightness_t;
 
@@ -59,10 +60,18 @@ void led_init(void);
 /**
  * Set LED color (non-blocking queue)
  * @param index LED index (0 to MAX_LEDS-1)
+ * @param rgb_t struct RGB color values
+ * @return LED_OK if success, error code otherwise
+ */
+led_err_t led_set_color(uint8_t index, rgb_t led_settings);
+
+/**
+ * Set LED color with brightness (non-blocking queue)
+ * @param index LED index (0 to MAX_LEDS-1)
  * @param argb_t struct containing brightness and RGB color values
  * @return LED_OK if success, error code otherwise
  */
-led_err_t led_set_color(uint8_t index, argb_t led_settings);
+led_err_t led_set_colorWithBrightness(uint8_t index, argb_t led_settings);
 
 /**
  * Get current LED color

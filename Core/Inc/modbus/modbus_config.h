@@ -23,10 +23,10 @@
 #define STATUS_BIT_OVERRIDE_ACTIVE 0x0008
 
 // LED modes
-#define LED_MODE_OFF 0x0000
-#define LED_MODE_NORMAL 0x0001
-#define LED_MODE_VEGAS 0x0002
-#define LED_MODE_KNIGHT 0x0004
+#define LED_MODE_NORMAL 0x0000
+#define LED_MODE_VEGAS 0x0001
+#define LED_MODE_KNIGHT 0x0002
+#define LED_MODE_OFF 0x0003
 
 typedef struct {
 	uint8_t slaveId;  // Modbus slave ID (1-247)

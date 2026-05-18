@@ -366,7 +366,7 @@ HAL_StatusTypeDef Modbus_WriteCoil(ModbusInterface_t *mb, uint8_t *data) {
 		colorHolder.color = led_green;
 	else
 		colorHolder.color = led_black;
-	led_set_color(address, colorHolder);
+	led_set_colorWithBrightness(address, colorHolder);
 	LOG_DEBUG("Write single coil complete: address=%u, coil=%u, holding=0x%04X", address, mb->coils[address], mb->holdingRegisters[address]);
 	return sendResponseWrite(mb, data);
 }
@@ -415,8 +415,7 @@ void updateRegisters(ModbusInterface_t *mb) {
 		mb->holdingRegisters[slot] =
 		  ShiftRegister_GetSlotState(&mb->shiftReg, slot) ? 1 : 0;
 	}
-
-	mb->holdingRegisters[41] = mb->ledMode;
+	led_updateMode();
 }
 
 /**
@@ -439,18 +438,8 @@ void setOperationFlag(ModbusInterface_t *mb, uint16_t address) {
 			mb->holdingRegisters[address] = HOLDINGREG_SLOT_TAKEN_FLAG;
 	}
 
-	if (mb->ledMode != LED_MODE_NORMAL) {
-		mb->ledMode = LED_MODE_NORMAL;
-		led_updateMode();
-	} else {
-		if (mb->holdingRegisters[address] & HOLDINGREG_SLOT_NEWOP_FLAG)
-			led_setting.color = led_blue;
-		else if (mb->holdingRegisters[address] & HOLDINGREG_SLOT_TAKEN_FLAG)
-			led_setting.color = led_green;
-		else
-			led_setting.color = led_black;
-		led_set_color(address, led_setting);
-	}
+	mb->ledMode = LED_MODE_NORMAL;
+	led_updateMode();
 }
 
 /**

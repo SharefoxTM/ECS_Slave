@@ -6,6 +6,7 @@
 	"cmake.preferredGenerators": [
 		"Ninja"
 	],
+	"cmake.configureOnEdit": true,
 	"stm32cube-ide-clangd.path": "cube",
 	"stm32cube-ide-clangd.arguments": [
 		"starm-clangd",
@@ -16,6 +17,7 @@
 	"editor.formatOnSave": true,
 	"editor.insertSpaces": false,
 	"editor.detectIndentation": false,
+	"task.allowAutomaticTasks": "on",
 	"[c]": {
 		"editor.defaultFormatter": "xaver.clang-format"
 	},
