@@ -429,7 +429,6 @@ void updateRegisters(ModbusInterface_t *mb) {
  */
 void setOperationFlag(ModbusInterface_t *mb, uint16_t address) {
 	LOG_DEBUG("Updating operation flag for slot %d: coil=%d, discreteInput=%d", address, mb->coils[address], mb->discreteInputs[address]);
-	argb_t led_setting = {.brightness = LED_BRIGHTNESS_MEDIUM_HIGH};
 	if (mb->coils[address] != mb->discreteInputs[address]) {
 		mb->holdingRegisters[address] |= HOLDINGREG_SLOT_NEWOP_FLAG;
 	} else {

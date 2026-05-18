@@ -29,13 +29,14 @@ extern const rgb_t led_white;
 extern const rgb_t led_yellow;
 extern const rgb_t led_cyan;
 extern const rgb_t led_magenta;
+extern const rgb_t led_orange;
 extern const rgb_t led_black;
 
 typedef enum led_brightness {
 	LED_BRIGHTNESS_LOW,
-	LED_BRIGHTNESS_MEDIUM_HIGH,
-	LED_BRIGHTNESS_MEDIUM,
 	LED_BRIGHTNESS_MEDIUM_LOW,
+	LED_BRIGHTNESS_MEDIUM,
+	LED_BRIGHTNESS_MEDIUM_HIGH,
 	LED_BRIGHTNESS_HIGH
 } led_brightness_t;
 

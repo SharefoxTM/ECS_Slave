@@ -6,6 +6,7 @@
 
 typedef void (*led_mode_fn_t)(void);
 
+extern void led_bootup(void);
 extern void led_turnOff(void);
 extern void led_turnOn(void);
 extern void led_vegas(void);

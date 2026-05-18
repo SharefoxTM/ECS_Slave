@@ -27,6 +27,7 @@ const rgb_t led_white = {255, 255, 255};
 const rgb_t led_yellow = {255, 255, 0};
 const rgb_t led_cyan = {0, 255, 255};
 const rgb_t led_magenta = {255, 0, 255};
+const rgb_t led_orange = {255, 165, 0};
 const rgb_t led_black = {0, 0, 0};
 
 /**
