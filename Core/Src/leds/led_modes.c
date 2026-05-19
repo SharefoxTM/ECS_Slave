@@ -4,6 +4,7 @@
 #include "modbus/modbus_config.h"
 #include "modbus/modbus_interface.h"
 #include "stm32f0xx_hal.h"
+#include <stdint.h>
 
 void rainbow(void);
 void fade(void);
@@ -15,47 +16,26 @@ ModbusInterface_t *hmb;
 led_mode_fn_t vegasShow[4] = {&rainbow, &fade, &police, &kr_color};
 
 typedef enum {
-	kr_dir_left,
-	kr_dir_right
+	kr_dir_right,
+	kr_dir_left
 } kr_dir_t;
 
-void kr_run(uint8_t lednum, rgb_t color, kr_dir_t dir);
-static void bootup_step(uint8_t i, uint8_t j);
-
-static void bootup_step(uint8_t i, uint8_t j) {
-	if (j >= (uint8_t)(led_buffer.count - i)) {
-		return;
-	}
-	for (uint8_t k = 0; k < 4; k++) {
-		led_set_colorWithBrightness(j - k, (argb_t){.color = led_orange, .brightness = LED_BRIGHTNESS_MEDIUM_HIGH - k});
-	}
-	led_transmit();
-	HAL_Delay(10);
-
-	if (j == led_buffer.count - 1) {
-		if (j > 0) {
-			led_set_colorWithBrightness(j - 1, (argb_t){.color = led_orange, .brightness = LED_BRIGHTNESS_MEDIUM_LOW});
-		}
-		if (j > 1) {
-			led_set_colorWithBrightness(j - 2, (argb_t){.color = led_orange, .brightness = LED_BRIGHTNESS_LOW});
-		}
-		led_transmit();
-		HAL_Delay(10);
-
-		if (j > 0) {
-			led_set_colorWithBrightness(j - 1, (argb_t){.color = led_orange, .brightness = LED_BRIGHTNESS_LOW});
-		}
-		led_transmit();
-		HAL_Delay(10);
-	}
-
-	bootup_step(i, j + 1);
-}
+static void kr_run(uint8_t lednum, rgb_t color, kr_dir_t dir);
+static void bootup_step(uint8_t staticPos, uint8_t dynamicPos);
+static void bootup_clear_tail(uint8_t staticPos, uint8_t dynamicPos);
 
 void led_bootup(void) {
 	for (uint8_t i = 0; i < led_buffer.count; i++) {
-		bootup_step(i, 0);
+		led_set_colorWithBrightness(i, (argb_t){.color = led_black, .brightness = LED_BRIGHTNESS_LOW});
 	}
+	led_transmit();
+	for (uint8_t i = 0; i < led_buffer.count; i++) {
+		bootup_step(i, 0);
+		bootup_clear_tail(led_buffer.count - 1 - i, 0);
+	}
+
+	hmb->ledMode = LED_MODE_NORMAL;
+	led_updateMode();
 }
 
 void led_turnOff(void) {
@@ -113,59 +93,19 @@ void led_vegas(void) {
 		}
 		led_transmit();
 		for (int i = 0; i < 4 && hmb->ledMode == LED_MODE_VEGAS; i++) {
-			vegasShow[i]();
+			vegasShow[3]();
 		}
 	}
-}
-
-void kr_run(uint8_t lednum, rgb_t color, kr_dir_t dir) {
-	argb_t color_holder;
-	if (dir == kr_dir_right) {
-		for (uint8_t i = 0; i < led_buffer.count && hmb->ledMode == LED_MODE_KNIGHT; i++) {
-			led_get_color(i, NULL, &color_holder.color.r, &color_holder.color.g, &color_holder.color.b);
-			if (i == lednum || (i == lednum - 1 && lednum > led_buffer.count - 1)) {
-				color_holder.brightness = LED_BRIGHTNESS_HIGH;
-				color_holder.color = color;
-			} else if (i == lednum - 1)
-				color_holder.brightness = LED_BRIGHTNESS_MEDIUM_HIGH;
-			else if (i == lednum - 2)
-				color_holder.brightness = LED_BRIGHTNESS_MEDIUM;
-			else if (i == lednum - 3)
-				color_holder.brightness = LED_BRIGHTNESS_MEDIUM_LOW;
-			else
-				color_holder.brightness = LED_BRIGHTNESS_LOW;
-
-			led_set_colorWithBrightness(i, color_holder);
-		}
-	} else {
-		for (uint8_t i = 0; i < led_buffer.count && hmb->ledMode == LED_MODE_KNIGHT; i++) {
-			led_get_color(i, NULL, &color_holder.color.r, &color_holder.color.g, &color_holder.color.b);
-			if (i == lednum || (i == lednum - 1 && lednum > led_buffer.count - 1)) {
-				color_holder.brightness = LED_BRIGHTNESS_HIGH;
-				color_holder.color = color;
-			} else if (i == lednum - 1)
-				color_holder.brightness = LED_BRIGHTNESS_MEDIUM_HIGH;
-			else if (i == lednum - 2)
-				color_holder.brightness = LED_BRIGHTNESS_MEDIUM;
-			else if (i == lednum - 3)
-				color_holder.brightness = LED_BRIGHTNESS_MEDIUM_LOW;
-			else
-				color_holder.brightness = LED_BRIGHTNESS_LOW;
-
-			led_set_colorWithBrightness(led_buffer.count - 1 - i, color_holder);
-		}
-	}
-	led_transmit();
 }
 
 void led_knight_rider(void) {
-	static kr_dir_t dir = kr_dir_right;
+	static kr_dir_t dir = kr_dir_left;
 	while (hmb->ledMode == LED_MODE_KNIGHT) {
 		for (uint8_t i = 0; i < led_buffer.count + 2 && hmb->ledMode == LED_MODE_KNIGHT; i++) {
 			kr_run(i, led_red, dir);
 			HAL_Delay(37);
 		}
-		dir = dir == kr_dir_right ? kr_dir_left : kr_dir_right;
+		dir = dir == kr_dir_left ? kr_dir_right : kr_dir_left;
 	}
 }
 
@@ -357,15 +297,97 @@ void kr_color(void) {
 	color.r = 0;
 	color.g = 0;
 	color.b = 0;
-	for (uint8_t i = 0; i < 255 && hmb->ledMode == LED_MODE_VEGAS; i += incVal) {
-		for (uint8_t j = 0; j < 255 && hmb->ledMode == LED_MODE_VEGAS; j += incVal) {
-			for (uint8_t k = 0; k < 255 && hmb->ledMode == LED_MODE_VEGAS; k += incVal) {
-				color.r = i;
-				color.g = j;
-				color.b = k;
-				kr_run(0, color, (k / led_buffer.count) % 2 == 0 ? kr_dir_right : kr_dir_left);
-				HAL_Delay(5);
+	kr_dir_t dir = kr_dir_right;
+	for (uint8_t repeat = 0; repeat < 6 && hmb->ledMode == LED_MODE_VEGAS; repeat++) {
+		for (uint8_t i = 0; i < led_buffer.count + 2 && hmb->ledMode == LED_MODE_VEGAS; i++) {
+			color.b += incVal;
+			if (color.b >= 255) {
+				color.b = 0;
+				color.r += incVal;
+				if (color.r >= 255) {
+					color.r = 0;
+					color.g += incVal;
+					if (color.g >= 255) {
+						color.g = 0;
+					}
+				}
 			}
+			kr_run(i, color, dir);
+			HAL_Delay(37);
 		}
+		dir = dir == kr_dir_left ? kr_dir_right : kr_dir_left;
 	}
+}
+
+static void kr_run(uint8_t lednum, rgb_t color, kr_dir_t dir) {
+	argb_t color_holder;
+	int16_t head_pos = (dir == kr_dir_left) ? lednum : (int16_t)(led_buffer.count - 1U - lednum);
+
+	for (uint8_t i = 0; i < led_buffer.count && (hmb->ledMode == LED_MODE_KNIGHT || hmb->ledMode == LED_MODE_VEGAS); i++) {
+		int16_t distance = head_pos - i;
+
+		if (dir == kr_dir_right) {
+			distance = i - head_pos;
+		}
+
+		led_get_color(i, NULL, &color_holder.color.r, &color_holder.color.g, &color_holder.color.b);
+
+		if (distance == 0) {
+			color_holder.brightness = LED_BRIGHTNESS_HIGH;
+			color_holder.color = color;
+		} else if (distance == 1) {
+			color_holder.brightness = LED_BRIGHTNESS_MEDIUM_HIGH;
+		} else if (distance == 2) {
+			color_holder.brightness = LED_BRIGHTNESS_MEDIUM;
+		} else if (distance == 3) {
+			color_holder.brightness = LED_BRIGHTNESS_MEDIUM_LOW;
+		} else {
+			color_holder.brightness = LED_BRIGHTNESS_LOW;
+		}
+
+		led_set_colorWithBrightness(i, color_holder);
+	}
+	led_transmit();
+}
+
+static void bootup_step(uint8_t staticPos, uint8_t dynamicPos) {
+	if (dynamicPos >= led_buffer.count - staticPos) {
+		return;
+	}
+	for (uint8_t i = 0; i < led_buffer.count - staticPos; i++) {
+		argb_t color_holder = {.color = led_orange, .brightness = LED_BRIGHTNESS_LOW};
+
+		if (i == dynamicPos) {
+			color_holder.brightness = LED_BRIGHTNESS_HIGH;
+		} else if (i == dynamicPos - 1)
+			color_holder.brightness = LED_BRIGHTNESS_MEDIUM_HIGH;
+		else if (i == dynamicPos - 2)
+			color_holder.brightness = LED_BRIGHTNESS_MEDIUM;
+		else if (i == dynamicPos - 3)
+			color_holder.brightness = LED_BRIGHTNESS_MEDIUM_LOW;
+
+		if (i <= dynamicPos)
+			led_set_colorWithBrightness(i, color_holder);
+	}
+
+	led_transmit();
+	HAL_Delay(37);
+
+	bootup_step(staticPos, dynamicPos + 1);
+}
+
+static void bootup_clear_tail(uint8_t staticPos, uint8_t dynamicPos) {
+	if (dynamicPos == 3) {
+		return;
+	}
+
+	for (uint8_t i = 0; i < 3 - dynamicPos; i++) {
+		argb_t color_holder = {.color = led_orange, .brightness = LED_BRIGHTNESS_LOW};
+		color_holder.brightness = LED_BRIGHTNESS_MEDIUM - i - dynamicPos;
+		led_set_colorWithBrightness(staticPos - 1 - i, color_holder);
+	}
+
+	led_transmit();
+	HAL_Delay(37);
+	bootup_clear_tail(staticPos, (uint8_t)(dynamicPos + 1));
 }

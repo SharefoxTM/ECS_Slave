@@ -27,6 +27,8 @@
 #define LED_MODE_VEGAS 0x0001
 #define LED_MODE_KNIGHT 0x0002
 #define LED_MODE_OFF 0x0003
+// bootup mode is a special mode that runs the bootup sequence and then switches to normal mode
+#define LED_MODE_BOOTUP 0xffff
 
 typedef struct {
 	uint8_t slaveId;  // Modbus slave ID (1-247)

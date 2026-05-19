@@ -2,6 +2,8 @@
 #include "../../Inc/led/led_modes.h"
 #include "cmsis_gcc.h"
 #include "modbus/circularBuffer.h"
+#include "modbus/modbus_config.h"
+#include "modbus/modbus_interface.h"
 #include "stm32f0xx_hal.h"
 #include "stm32f0xx_hal_tim.h"
 #include "tim.h"
@@ -19,6 +21,7 @@ led_mode_fn_t mode_off = &led_turnOff;
 led_mode_fn_t mode_normal = &led_turnOn;
 led_mode_fn_t mode_vegas = &led_vegas;
 led_mode_fn_t mode_knightrider = &led_knight_rider;
+led_mode_fn_t mode_bootup = &led_bootup;
 
 const rgb_t led_red = {255, 0, 0};
 const rgb_t led_green = {0, 255, 0};
@@ -46,8 +49,8 @@ void led_init(void) {
 		}
 	}
 	led_transmit();
-	hmb->ledMode = LED_MODE_VEGAS; // Start in Vegas mode for self test
-	hmb->holdingRegisters[41] = LED_MODE_VEGAS;
+	hmb->ledMode = LED_MODE_VEGAS;
+	led_updateMode();
 	LOG_INFO("LED controller initialized, resetting all LEDs to off");
 	LOG_DEBUG("LED init complete: count=%u", led_buffer.count);
 	LOG_DEBUG("LED buffer state: busy=%u", led_buffer.busy);
@@ -114,6 +117,10 @@ led_err_t led_set_colorWithBrightness(uint8_t index, argb_t led_settings) {
 		led_buffer.leds[index].color.r = led_settings.color.r / 4 * 3;
 		led_buffer.leds[index].color.g = led_settings.color.g / 4 * 3;
 		led_buffer.leds[index].color.b = led_settings.color.b / 4 * 3;
+	} else {
+		led_buffer.leds[index].color.r = led_settings.color.r;
+		led_buffer.leds[index].color.g = led_settings.color.g;
+		led_buffer.leds[index].color.b = led_settings.color.b;
 	}
 
 	if (index >= led_buffer.count) {
@@ -186,6 +193,7 @@ void led_updateMode(void) {
 		return; /* No change in mode, skip update */
 	}
 	lastMode = hmb->ledMode;
+	hmb->holdingRegisters[41] = hmb->ledMode;
 	LOG_DEBUG("Updating LED mode: %u", hmb->ledMode);
 	switch (hmb->ledMode) {
 		case LED_MODE_NORMAL:
@@ -196,6 +204,9 @@ void led_updateMode(void) {
 			break;
 		case LED_MODE_KNIGHT:
 			mode_knightrider();
+			break;
+		case LED_MODE_BOOTUP:
+			mode_bootup();
 			break;
 		default:
 			mode_off();
