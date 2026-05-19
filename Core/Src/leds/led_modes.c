@@ -55,7 +55,7 @@ void led_turnOn(void) {
 		else if (hmb->holdingRegisters[i] & HOLDINGREG_SLOT_TAKEN_FLAG)
 			led_setting.color = led_green;
 		else
-			led_setting.color = led_yellow;
+			led_setting.color = led_black;
 		led_set_colorWithBrightness(i, led_setting);
 	}
 }
@@ -93,7 +93,7 @@ void led_vegas(void) {
 		}
 		led_transmit();
 		for (int i = 0; i < 4 && hmb->ledMode == LED_MODE_VEGAS; i++) {
-			vegasShow[3]();
+			vegasShow[i]();
 		}
 	}
 }

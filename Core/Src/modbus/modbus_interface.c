@@ -414,6 +414,7 @@ void updateRegisters(ModbusInterface_t *mb) {
 	for (uint8_t slot = 0; slot < mb->shiftReg.totalSlots; slot++) {
 		mb->holdingRegisters[slot] =
 		  ShiftRegister_GetSlotState(&mb->shiftReg, slot) ? 1 : 0;
+		setOperationFlag(mb, slot);
 	}
 	led_updateMode();
 }

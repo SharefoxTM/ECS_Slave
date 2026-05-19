@@ -49,7 +49,7 @@ void led_init(void) {
 		}
 	}
 	led_transmit();
-	hmb->ledMode = LED_MODE_VEGAS;
+	hmb->ledMode = LED_MODE_BOOTUP;
 	led_updateMode();
 	LOG_INFO("LED controller initialized, resetting all LEDs to off");
 	LOG_DEBUG("LED init complete: count=%u", led_buffer.count);
