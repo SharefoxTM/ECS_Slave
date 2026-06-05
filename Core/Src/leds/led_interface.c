@@ -189,12 +189,11 @@ led_err_t led_transmit(void) {
 
 void led_updateMode(void) {
 	static uint8_t lastMode = 0xFF;
-	if (hmb->ledMode == lastMode) {
-		return; /* No change in mode, skip update */
+	if (hmb->ledMode != lastMode) {
+		LOG_DEBUG("Updating LED mode: %u", hmb->ledMode);
 	}
 	lastMode = hmb->ledMode;
 	hmb->holdingRegisters[41] = hmb->ledMode;
-	LOG_DEBUG("Updating LED mode: %u", hmb->ledMode);
 	switch (hmb->ledMode) {
 		case LED_MODE_NORMAL:
 			mode_normal();

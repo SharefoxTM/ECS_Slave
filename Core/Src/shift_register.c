@@ -16,7 +16,7 @@ __STATIC_FORCEINLINE void cyclePinLow(GPIO_TypeDef *GPIOx, uint16_t GPIO_Pin);
 
 ShiftRegister_t ShiftRegister_Init(void) {
 	static ShiftRegister_t sr;
-	memset(sr.sensorStates, 0, sizeof(sr.sensorStates));
+	memset((void *)sr.sensorStates, 0, sizeof(sr.sensorStates));
 	sr.activeRegisters = 0;
 	sr.totalSlots = 0;
 	ShiftRegister_DetectSlots(&sr);

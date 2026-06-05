@@ -1,32 +1,32 @@
 {
 	"version": "2.0.0",
 	"tasks": [
-		{
-			"label": "Build on Save (Debug)",
-			"type": "shell",
-			"isBackground": true,
-			"problemMatcher": {
-				"owner": "custom",
-				"fileLocation": "absolute",
-				"pattern": {
-					"regexp": "^(.*):(\\d+):(\\d+):\\s+(warning|error):\\s+(.*)$",
-					"file": 1,
-					"line": 2,
-					"column": 3,
-					"severity": 4,
-					"message": 5
-				},
-				"background": {
-					"activeOnStart": true,
-					"beginsPattern": "^\\[build-on-save\\] watcher started$",
-					"endsPattern": "^\\[build-on-save\\] watcher stopped$"
-				}
-			},
-			"runOptions": {
-				"runOn": "folderOpen"
-			}
-			,
-			"command": "$ErrorActionPreference = 'Stop'; $root = '${workspaceFolder}'; $cmake = '${config:cmake.cmakePath}'; function Should-Build([string]$path) { if (-not $path) { return $false }; $lower = $path.ToLowerInvariant(); if ($lower.StartsWith(($root + '\\build').ToLowerInvariant())) { return $false }; if ($lower.EndsWith('.c') -or $lower.EndsWith('.h') -or $lower.EndsWith('.cpp') -or $lower.EndsWith('.hpp')) { return $true }; return $false }; function Build-Debug() { Write-Host '[build-on-save] build Debug'; & $cmake --build --preset Debug; if ($LASTEXITCODE -ne 0) { Write-Host '[build-on-save] build failed' } else { Write-Host '[build-on-save] build ok' } }; $watcher = New-Object System.IO.FileSystemWatcher $root, '*'; $watcher.IncludeSubdirectories = $true; $watcher.NotifyFilter = [System.IO.NotifyFilters]'LastWrite, Size'; $watcher.EnableRaisingEvents = $true; $null = Register-ObjectEvent -InputObject $watcher -EventName Changed -SourceIdentifier bos_changed; Write-Host '[build-on-save] watcher started'; try { while ($true) { $evt = Wait-Event -SourceIdentifier bos_changed; $fullPath = $null; if ($evt.SourceEventArgs -and $evt.SourceEventArgs.FullPath) { $fullPath = $evt.SourceEventArgs.FullPath }; Remove-Event -EventIdentifier $evt.EventIdentifier; if (Should-Build $fullPath) { Build-Debug } } } finally { Write-Host '[build-on-save] watcher stopped'; Unregister-Event -SourceIdentifier bos_changed -ErrorAction SilentlyContinue; if ($watcher) { $watcher.Dispose() } }"
-		}
+		// {
+		// 	"label": "Build on Save (Debug)",
+		// 	"type": "shell",
+		// 	"isBackground": true,
+		// 	"problemMatcher": {
+		// 		"owner": "custom",
+		// 		"fileLocation": "absolute",
+		// 		"pattern": {
+		// 			"regexp": "^(.*):(\\d+):(\\d+):\\s+(warning|error):\\s+(.*)$",
+		// 			"file": 1,
+		// 			"line": 2,
+		// 			"column": 3,
+		// 			"severity": 4,
+		// 			"message": 5
+		// 		},
+		// 		"background": {
+		// 			"activeOnStart": true,
+		// 			"beginsPattern": "^\\[build-on-save\\] watcher started$",
+		// 			"endsPattern": "^\\[build-on-save\\] watcher stopped$"
+		// 		}
+		// 	},
+		// 	"runOptions": {
+		// 		"runOn": "folderOpen"
+		// 	}
+		// 	,
+		// 	"command": "$ErrorActionPreference = 'Stop'; $root = '${workspaceFolder}'; $cmake = '${config:cmake.cmakePath}'; function Should-Build([string]$path) { if (-not $path) { return $false }; $lower = $path.ToLowerInvariant(); if ($lower.StartsWith(($root + '\\build').ToLowerInvariant())) { return $false }; if ($lower.EndsWith('.c') -or $lower.EndsWith('.h') -or $lower.EndsWith('.cpp') -or $lower.EndsWith('.hpp')) { return $true }; return $false }; function Build-Debug() { Write-Host '[build-on-save] build Debug'; & $cmake --build --preset Debug; if ($LASTEXITCODE -ne 0) { Write-Host '[build-on-save] build failed' } else { Write-Host '[build-on-save] build ok' } }; $watcher = New-Object System.IO.FileSystemWatcher $root, '*'; $watcher.IncludeSubdirectories = $true; $watcher.NotifyFilter = [System.IO.NotifyFilters]'LastWrite, Size'; $watcher.EnableRaisingEvents = $true; $null = Register-ObjectEvent -InputObject $watcher -EventName Changed -SourceIdentifier bos_changed; Write-Host '[build-on-save] watcher started'; try { while ($true) { $evt = Wait-Event -SourceIdentifier bos_changed; $fullPath = $null; if ($evt.SourceEventArgs -and $evt.SourceEventArgs.FullPath) { $fullPath = $evt.SourceEventArgs.FullPath }; Remove-Event -EventIdentifier $evt.EventIdentifier; if (Should-Build $fullPath) { Build-Debug } } } finally { Write-Host '[build-on-save] watcher stopped'; Unregister-Event -SourceIdentifier bos_changed -ErrorAction SilentlyContinue; if ($watcher) { $watcher.Dispose() } }"
+		// }
 	]
 }

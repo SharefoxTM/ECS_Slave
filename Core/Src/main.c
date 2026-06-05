@@ -108,7 +108,8 @@ int main(void) {
 
 		/* USER CODE BEGIN 3 */
 		Modbus_Update(&mb);
-		led_transmit();
+		led_updateMode();
+		HAL_Delay(200);
 	}
 	/* USER CODE END 3 */
 }

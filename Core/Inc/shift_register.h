@@ -6,11 +6,11 @@
 #define MAX_SHIFT_REGISTERS 5
 #define BITS_PER_SR 8
 
-typedef struct {
-  uint8_t
-      sensorStates[MAX_SHIFT_REGISTERS]; // Raw sensor data from Hall sensors
-  uint8_t activeRegisters;               // Number of active shift registers
-  uint8_t totalSlots;                    // Total number of slots
+typedef volatile struct {
+	uint8_t
+	  sensorStates[MAX_SHIFT_REGISTERS]; // Raw sensor data from Hall sensors
+	uint8_t activeRegisters;             // Number of active shift registers
+	uint8_t totalSlots;                  // Total number of slots
 } ShiftRegister_t;
 
 // Function prototypes

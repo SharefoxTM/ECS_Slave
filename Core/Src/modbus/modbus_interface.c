@@ -8,15 +8,17 @@
 #include <string.h>
 
 void updateRegisters(ModbusInterface_t *mb);
-void setOperationFlag(ModbusInterface_t *mb, uint16_t address);
 void processReceivedPackage(ModbusInterface_t *mb, uint8_t *data);
+void appendCrc(uint8_t *frame, uint16_t length);
+
 HAL_StatusTypeDef sendResponseRead(ModbusInterface_t *mb, uint8_t *requestData, uint8_t byteCount, uint8_t *responseData);
 HAL_StatusTypeDef sendResponseWrite(ModbusInterface_t *mb, uint8_t *requestData);
 HAL_StatusTypeDef sendResponseWriteMultiple(ModbusInterface_t *mb, uint8_t *requestData);
 HAL_StatusTypeDef sendExceptionResponse(ModbusInterface_t *mb, uint8_t functionCode, uint8_t exceptionCode);
 HAL_StatusTypeDef startTx(const uint8_t *data, uint16_t len, uint32_t timeout);
+
 uint8_t checkCrc(const uint8_t *frame, uint16_t frameLen);
-void appendCrc(uint8_t *frame, uint16_t length);
+uint8_t setOperationFlag(ModbusInterface_t *mb, uint16_t address);
 
 uint8_t MODBUS_RXData[256];
 
@@ -73,15 +75,15 @@ ModbusInterface_t Modbus_Init(uint8_t slaveId) {
 	  (uint8_t *)calloc(mb.shiftReg.totalSlots, sizeof(uint8_t));
 	if (mb.discreteInputs == NULL) {
 		LOG_ERROR("Modbus init failed: discreteInputs allocation failed, slots=%u", mb.shiftReg.totalSlots);
-		free(mb.coils);
+		free((void *)mb.coils);
 		return mb;
 	}
 	mb.holdingRegisters =
 	  (uint16_t *)calloc((MODBUS_HOLDING_REGISTER_COUNT), sizeof(uint16_t));
 	if (mb.holdingRegisters == NULL) {
 		LOG_ERROR("Modbus init failed: holdingRegisters allocation failed, slots=%u", mb.shiftReg.totalSlots);
-		free(mb.coils);
-		free(mb.discreteInputs);
+		free((void *)mb.coils);
+		free((void *)mb.discreteInputs);
 		return mb;
 	}
 
@@ -403,19 +405,16 @@ HAL_StatusTypeDef Modbus_WriteMultipleCoils(ModbusInterface_t *mb, uint8_t *data
  */
 void updateRegisters(ModbusInterface_t *mb) {
 	for (uint8_t slot = 0; slot < mb->shiftReg.totalSlots; slot++) {
-		mb->discreteInputs[slot] =
-		  ShiftRegister_GetSlotState(&mb->shiftReg, slot) ? 1 : 0;
+		mb->discreteInputs[slot] = (mb->shiftReg.sensorStates[slot / 8] >> (slot % 8)) & 0x01;
+		if (setOperationFlag(mb, slot)) {
+			hmb->ledMode = LED_MODE_NORMAL;
+		}
 	}
 
 	mb->inputRegisters[0] = mb->shiftReg.totalSlots;
 	mb->inputRegisters[1] = ShiftRegister_GetFreeCount(&mb->shiftReg);
 	mb->inputRegisters[2] = mb->statusRegister;
 
-	for (uint8_t slot = 0; slot < mb->shiftReg.totalSlots; slot++) {
-		mb->holdingRegisters[slot] =
-		  ShiftRegister_GetSlotState(&mb->shiftReg, slot) ? 1 : 0;
-		setOperationFlag(mb, slot);
-	}
 	led_updateMode();
 }
 
@@ -427,19 +426,33 @@ void updateRegisters(ModbusInterface_t *mb) {
  *          if it was in a special mode.
  * @param mb      Pointer to the ModbusInterface_t structure.
  * @param address 0-based slot address.
+ * @return 1 if a change was detected and the register was updated, 0 if no change was needed.
  */
-void setOperationFlag(ModbusInterface_t *mb, uint16_t address) {
-	LOG_DEBUG("Updating operation flag for slot %d: coil=%d, discreteInput=%d", address, mb->coils[address], mb->discreteInputs[address]);
-	if (mb->coils[address] != mb->discreteInputs[address]) {
-		mb->holdingRegisters[address] |= HOLDINGREG_SLOT_NEWOP_FLAG;
-	} else {
-		mb->holdingRegisters[address] = 0;
-		if (mb->coils[address])
-			mb->holdingRegisters[address] = HOLDINGREG_SLOT_TAKEN_FLAG;
+uint8_t setOperationFlag(ModbusInterface_t *mb, uint16_t address) {
+	uint8_t changeDetected = 0;
+	if (mb->holdingRegisters[address] & HOLDINGREG_SLOT_NEWOP_FLAG) {
+		if (mb->coils[address] == (mb->discreteInputs[address] & 0x01)) {
+			mb->holdingRegisters[address] &= ~HOLDINGREG_SLOT_NEWOP_FLAG;
+			if (mb->coils[address]) {
+				mb->holdingRegisters[address] |= HOLDINGREG_SLOT_TAKEN_FLAG;
+			} else {
+				mb->holdingRegisters[address] &= ~HOLDINGREG_SLOT_TAKEN_FLAG;
+			}
+			changeDetected = 1;
+		}
+	} else if (mb->coils[address] != (mb->discreteInputs[address] & 0x01)) {
+		if (mb->coils[address]) {
+			mb->holdingRegisters[address] |= HOLDINGREG_SLOT_TAKEN_FLAG;
+		} else {
+			mb->holdingRegisters[address] &= ~HOLDINGREG_SLOT_TAKEN_FLAG;
+		}
+		mb->holdingRegisters[address] |= HOLDINGREG_SLOT_ERROR_FLAG;
+		changeDetected = 1;
+	} else if (mb->coils[address] == (mb->discreteInputs[address] & 0x01) && (mb->holdingRegisters[address] & HOLDINGREG_SLOT_ERROR_FLAG)) {
+		mb->holdingRegisters[address] &= ~HOLDINGREG_SLOT_ERROR_FLAG;
+		changeDetected = 1;
 	}
-
-	mb->ledMode = LED_MODE_NORMAL;
-	led_updateMode();
+	return changeDetected;
 }
 
 /**

@@ -24,10 +24,10 @@
 
 typedef struct modbusHandler {
 	// Dynamic sizes based on detected slots
-	uint8_t *coils;             // Read/Write coils for override
-	uint8_t *discreteInputs;    // Read-only discrete inputs for slot states
-	uint16_t inputRegisters[3]; // Status registers
-	uint16_t *holdingRegisters; // Slot status + LED mode
+	volatile uint8_t *coils;             // Read/Write coils for override
+	volatile uint8_t *discreteInputs;    // Read-only discrete inputs for slot states
+	volatile uint16_t inputRegisters[3]; // Status registers
+	volatile uint16_t *holdingRegisters; // Slot status + LED mode
 
 	// System state
 	ShiftRegister_t shiftReg;

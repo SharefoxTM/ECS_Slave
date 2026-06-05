@@ -43,21 +43,28 @@ void led_turnOff(void) {
 	for (uint8_t i = 0; i < led_buffer.count; i++) {
 		led_set_colorWithBrightness(i, led_setting);
 	}
+	led_transmit();
 }
 
 void led_turnOn(void) {
 	for (uint8_t i = 0; i < led_buffer.count; i++) {
-		argb_t led_setting = {.color = led_black, .brightness = LED_BRIGHTNESS_MEDIUM_LOW};
-		if (hmb->holdingRegisters[i] & HOLDINGREG_SLOT_ERROR_FLAG)
+		argb_t led_setting;
+		if (hmb->holdingRegisters[i] & HOLDINGREG_SLOT_ERROR_FLAG) {
 			led_setting.color = led_red;
-		else if (hmb->holdingRegisters[i] & HOLDINGREG_SLOT_NEWOP_FLAG)
+			led_setting.brightness = LED_BRIGHTNESS_MEDIUM_HIGH;
+		} else if (hmb->holdingRegisters[i] & HOLDINGREG_SLOT_NEWOP_FLAG) {
 			led_setting.color = led_blue;
-		else if (hmb->holdingRegisters[i] & HOLDINGREG_SLOT_TAKEN_FLAG)
+			led_setting.brightness = LED_BRIGHTNESS_MEDIUM;
+		} else if (hmb->holdingRegisters[i] & HOLDINGREG_SLOT_TAKEN_FLAG) {
 			led_setting.color = led_green;
-		else
+			led_setting.brightness = LED_BRIGHTNESS_MEDIUM;
+		} else {
 			led_setting.color = led_black;
+			led_setting.brightness = LED_BRIGHTNESS_LOW;
+		}
 		led_set_colorWithBrightness(i, led_setting);
 	}
+	led_transmit();
 }
 
 void led_vegas(void) {
