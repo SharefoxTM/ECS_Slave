@@ -115,6 +115,9 @@ void led_knight_rider(void) {
 			HAL_Delay(37);
 		}
 		dir = dir == kr_dir_left ? kr_dir_right : kr_dir_left;
+
+		Modbus_Update(&mb);
+		led_updateMode();
 	}
 }
 
