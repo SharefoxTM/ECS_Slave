@@ -116,7 +116,7 @@ void led_knight_rider(void) {
 		}
 		dir = dir == kr_dir_left ? kr_dir_right : kr_dir_left;
 
-		Modbus_Update(&mb);
+		Modbus_Update(hmb);
 		led_updateMode();
 	}
 }
