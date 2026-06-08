@@ -414,8 +414,6 @@ void updateRegisters(ModbusInterface_t *mb) {
 	mb->inputRegisters[0] = mb->shiftReg.totalSlots;
 	mb->inputRegisters[1] = ShiftRegister_GetFreeCount(&mb->shiftReg);
 	mb->inputRegisters[2] = mb->statusRegister;
-
-	led_updateMode();
 }
 
 /**
@@ -429,7 +427,7 @@ void updateRegisters(ModbusInterface_t *mb) {
  * @return 1 if a change was detected and the register was updated, 0 if no change was needed.
  */
 uint8_t setOperationFlag(ModbusInterface_t *mb, uint16_t address) {
-	uint8_t changeDetected = 0;
+	uint8_t previousState = mb->holdingRegisters[address];
 	if (mb->holdingRegisters[address] & HOLDINGREG_SLOT_NEWOP_FLAG) {
 		if (mb->coils[address] == (mb->discreteInputs[address] & 0x01)) {
 			mb->holdingRegisters[address] &= ~HOLDINGREG_SLOT_NEWOP_FLAG;
@@ -438,7 +436,6 @@ uint8_t setOperationFlag(ModbusInterface_t *mb, uint16_t address) {
 			} else {
 				mb->holdingRegisters[address] &= ~HOLDINGREG_SLOT_TAKEN_FLAG;
 			}
-			changeDetected = 1;
 		}
 	} else if (mb->coils[address] != (mb->discreteInputs[address] & 0x01)) {
 		if (mb->coils[address]) {
@@ -447,12 +444,10 @@ uint8_t setOperationFlag(ModbusInterface_t *mb, uint16_t address) {
 			mb->holdingRegisters[address] &= ~HOLDINGREG_SLOT_TAKEN_FLAG;
 		}
 		mb->holdingRegisters[address] |= HOLDINGREG_SLOT_ERROR_FLAG;
-		changeDetected = 1;
 	} else if (mb->coils[address] == (mb->discreteInputs[address] & 0x01) && (mb->holdingRegisters[address] & HOLDINGREG_SLOT_ERROR_FLAG)) {
 		mb->holdingRegisters[address] &= ~HOLDINGREG_SLOT_ERROR_FLAG;
-		changeDetected = 1;
 	}
-	return changeDetected;
+	return (previousState != mb->holdingRegisters[address]);
 }
 
 /**
@@ -464,7 +459,6 @@ uint8_t setOperationFlag(ModbusInterface_t *mb, uint16_t address) {
  * @param data Buffer containing the packet.
  */
 void processReceivedPackage(ModbusInterface_t *mb, uint8_t *data) {
-	// TODO: Refactor this function to reduce code duplication and improve clarity. Consider creating helper functions for parsing requests and sending responses.
 	// TODO: Add error handling for invalid packet formats, unsupported function codes, and out-of-range addresses/counts. Ensure that the Modbus exception response is sent in these cases.
 	uint8_t functionCode = data[1];
 

@@ -33,7 +33,7 @@ typedef struct modbusHandler {
 	ShiftRegister_t shiftReg;
 	uint8_t slaveId;
 	uint16_t statusRegister;
-	uint16_t ledMode;
+	volatile uint16_t ledMode;
 
 } ModbusInterface_t;
 

@@ -101,6 +101,8 @@ void led_vegas(void) {
 		led_transmit();
 		for (int i = 0; i < 4 && hmb->ledMode == LED_MODE_VEGAS; i++) {
 			vegasShow[i]();
+			Modbus_Update(hmb);
+			led_updateMode();
 		}
 	}
 }
