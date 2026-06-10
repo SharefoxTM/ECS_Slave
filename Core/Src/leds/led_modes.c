@@ -39,9 +39,9 @@ void led_bootup(void) {
 }
 
 void led_turnOff(void) {
-	argb_t led_setting = {.color = led_black, .brightness = LED_BRIGHTNESS_LOW};
+	rgb_t led_setting = led_black;
 	for (uint8_t i = 0; i < led_buffer.count; i++) {
-		led_set_colorWithBrightness(i, led_setting);
+		led_set_color(i, led_setting);
 	}
 	led_transmit();
 }
@@ -68,6 +68,7 @@ void led_turnOn(void) {
 }
 
 void led_vegas(void) {
+	static uint8_t vegasCounter = 0;
 	while (hmb->ledMode == LED_MODE_VEGAS) {
 		for (int i = 0; i < led_buffer.count && hmb->ledMode == LED_MODE_VEGAS; i++) {
 			rgb_t color_holder;
@@ -99,11 +100,12 @@ void led_vegas(void) {
 			led_set_color(i, color_holder);
 		}
 		led_transmit();
-		for (int i = 0; i < 4 && hmb->ledMode == LED_MODE_VEGAS; i++) {
-			vegasShow[i]();
-			Modbus_Update(hmb);
-			led_updateMode();
+		vegasShow[vegasCounter++]();
+		if (vegasCounter >= sizeof(vegasShow) / sizeof(vegasShow[0])) {
+			vegasCounter = 0;
 		}
+		Modbus_Update(hmb);
+		led_updateMode();
 	}
 }
 
